@@ -10,7 +10,7 @@ class TruyenFullVision implements Plugin.PluginBase {
   name = 'TruyenFull.vision';
   icon = 'src/vi/truyenfull/icon.png';
   site = 'https://truyenfull.vision';
-  version = '1.0.2';
+  version = '1.0.3';
 
   imageRequestInit: Plugin.ImageRequestInit = {
     headers: {
@@ -48,11 +48,7 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const cover =
-        this.site +
-        $(element)
-          .find("div[data-classname='cover']")
-          .attr('data-image');
+      const cover = $(element).find('img.cover').attr('src');
 
       if (name && path) {
         novels.push({

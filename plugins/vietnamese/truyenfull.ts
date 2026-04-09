@@ -10,7 +10,7 @@ class TruyenFullVision implements Plugin.PluginBase {
   name = 'TruyenFull.vision';
   icon = 'src/vi/truyenfull/icon.png';
   site = 'https://truyenfull.vision';
-  version = '1.0.1';
+  version = '1.0.2';
 
   imageRequestInit: Plugin.ImageRequestInit = {
     headers: {
@@ -48,21 +48,17 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const imgElement = $(element).find('img.cover');
-      let cover = imgElement.attr('data-src') ||
-        imgElement.attr('data-image') ||
-        imgElement.attr('src') ||
-        '';
+      const cover =
+        this.site +
+        $(element)
+          .find("div[data-classname='cover']")
+          .attr('data-image');
 
       if (name && path) {
-        const finalCoverUrl = cover.startsWith('http')
-          ? cover
-          : this.normalizeCoverUrl(cover);
-
         novels.push({
           name,
           path,
-          cover: finalCoverUrl,
+          cover,
         });
       }
     });
@@ -169,7 +165,20 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const cover = $(element).find('img').attr('data-src') || $(element).find('img').attr('src');
+
+      const imgElement = $(element).find('.lazyimg, img.cover, img');
+      let cover =
+        imgElement.attr('data-image') ||
+        imgElement.attr('data-src') ||
+        imgElement.attr('src');
+
+      if (!cover) {
+        const style = imgElement.attr('style');
+        if (style) {
+          const match = style.match(/background-image:\s*url\(['"]?(.*?)['"]?\)/);
+          if (match) cover = match[1];
+        }
+      }
 
       if (name && path) {
         novels.push({

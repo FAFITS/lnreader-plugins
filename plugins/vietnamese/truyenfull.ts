@@ -5,12 +5,12 @@ import { defaultCover } from '@libs/defaultCover';
 import { NovelStatus } from '@libs/novelStatus';
 import { Filters, FilterTypes } from '@libs/filterInputs';
 
-class TruyenFullVision implements Plugin.PluginBase {
+class TruyenFullVision implements Plugin.PagePlugin {
   id = 'truyenfull.vision';
   name = 'TruyenFull.vision';
   icon = 'src/vi/truyenfull/icon.png';
   site = 'https://truyenfull.vision';
-  version = '1.0.3';
+  version = '1.0.4';
 
   imageRequestInit: Plugin.ImageRequestInit = {
     headers: {
@@ -48,7 +48,26 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const cover = $(element).find('img.cover').attr('src');
+
+      const imgElement = $(element).find('.lazyimg, img.cover, img');
+      let cover =
+        imgElement.attr('data-image') ||
+        imgElement.attr('data-src') ||
+        imgElement.attr('src');
+
+      if (!cover) {
+        const style = imgElement.attr('style');
+        if (style) {
+          const match = style.match(/background-image:\s*url\(['"]?(.*?)['"]?\)/);
+          if (match) cover = match[1];
+        }
+      }
+
+      if (cover && cover.startsWith('//')) {
+        cover = 'https:' + cover;
+      } else if (cover && cover.startsWith('/')) {
+        cover = this.site + cover;
+      }
 
       if (name && path) {
         novels.push({
@@ -62,7 +81,7 @@ class TruyenFullVision implements Plugin.PluginBase {
     return novels;
   }
 
-  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
+  async parseNovel(novelPath: string): Promise<Plugin.SourceNovel & { totalPages: number }> {
     const response = await fetchApi(`${this.site}${novelPath}`);
     const html = await response.text();
     const $ = loadCheerio(html);
@@ -104,6 +123,21 @@ class TruyenFullVision implements Plugin.PluginBase {
       }
     });
 
+    let totalPages = 1;
+    const totalPageInput = $('#total-page').val();
+    if (totalPageInput) {
+      totalPages = parseInt(totalPageInput as string, 10);
+    } else {
+      const lastPageAnchor = $('.pagination li a').filter((_, el) => $(el).text().includes('Cuối'));
+      if (lastPageAnchor.length) {
+        const lastPageHref = lastPageAnchor.attr('href') || '';
+        const match = lastPageHref.match(/trang-(\d+)/);
+        if (match) {
+          totalPages = parseInt(match[1], 10);
+        }
+      }
+    }
+
     return {
       path: novelPath,
       name,
@@ -113,25 +147,16 @@ class TruyenFullVision implements Plugin.PluginBase {
       genres,
       status,
       chapters,
+      totalPages,
     };
   }
 
-  async parsePage(novelPath: string, pageNo: number): Promise<Plugin.ChapterItem[]> {
-    const url = `${this.site}${novelPath}trang-${pageNo}/#list-chapter`;
-    const response = await fetchApi(url);
-    const html = await response.text();
-    const $ = loadCheerio(html);
-
-    const chapters: Plugin.ChapterItem[] = [];
-    $('.list-chapter li a').each((_, el) => {
-      const name = $(el).text().trim();
-      const path = $(el).attr('href')?.replace(this.site, '');
-      if (name && path) {
-        chapters.push({ name, path });
-      }
-    });
-
-    return chapters;
+  async parsePage(novelPath: string, page: string): Promise<Plugin.SourcePage> {
+    const url = `${novelPath}trang-${page}/#list-chapter`;
+    const response = await this.parseNovel(url);
+    return {
+      chapters: response.chapters || [],
+    };
   }
 
   async parseChapter(chapterPath: string): Promise<string> {

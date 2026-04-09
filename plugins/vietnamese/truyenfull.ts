@@ -48,7 +48,7 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const cover = $(element).find('img.lazyimg').attr('data-src') || $(element).find('img').attr('src');
+      const cover = $(element).find('img').attr('data-src') || $(element).find('img').attr('src');
 
       if (name && path) {
         novels.push({
@@ -68,8 +68,14 @@ class TruyenFullVision implements Plugin.PluginBase {
     const $ = loadCheerio(html);
 
     const name = $('h3.title').text().trim();
-    const cover = $('.book img').attr('src');
-    const summary = $('.desc-text').html() || '';
+    const cover = $('.book img').attr('data-src') || $('.book img').attr('src');
+    const summary = $('.desc-text')
+      .html()
+      ?.replace(/<br\s*\/?>/g, '\n')
+      ?.replace(/<(?:p|div|section)[^>]*>/g, '\n')
+      ?.replace(/<[^>]+>/g, '')
+      ?.replace(/\n\s*\n/g, '\n')
+      ?.trim();
 
     const author = $('.info a[itemprop="author"]').text().trim();
     const genres = $('.info a[itemprop="genre"]')
@@ -155,7 +161,7 @@ class TruyenFullVision implements Plugin.PluginBase {
       const titleElement = $(element).find('h3.truyen-title a');
       const name = titleElement.text().trim();
       const path = titleElement.attr('href')?.replace(this.site, '');
-      const cover = $(element).find('img.lazyimg').attr('data-src') || $(element).find('img').attr('src');
+      const cover = $(element).find('img').attr('data-src') || $(element).find('img').attr('src');
 
       if (name && path) {
         novels.push({

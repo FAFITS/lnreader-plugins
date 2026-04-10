@@ -15,6 +15,7 @@ class NocSyosetu implements Plugin.PagePlugin {
     headers = {
         'Cookie': 'over18=yes',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://noc.syosetu.com/',
     };
 
     pluginSettings = {
@@ -24,8 +25,8 @@ class NocSyosetu implements Plugin.PagePlugin {
             type: 'Switch',
         },
         nocsyosetu_translateLang: {
-            value: 'vi',
-            label: 'Translate Language (e.g., vi, en, th)',
+            value: 'en',
+            label: 'Translate Language (e.g., en <default> , vi, th, ...)',
             type: 'Text',
         },
     };
@@ -63,7 +64,7 @@ class NocSyosetu implements Plugin.PagePlugin {
             const $el = $(el);
             const titleAnchor = $el.find('.trackback_listdiv a').first();
 
-            const name = titleAnchor.text().trim();
+            const name = titleAnchor.text().trim().replace(/\([^)]*\)$/, '').trim();
             let novelUrl = titleAnchor.attr('href');
 
             if (name && novelUrl) {

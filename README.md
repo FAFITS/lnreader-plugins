@@ -2,7 +2,7 @@ This is a fork of the original repository, containing only my custom plugins and
 
 ### Included sources:
 
-- [Truyenfull](https://truyenfull.vision)
+- [NocSyosetu](https://noc.syosetu.com/)
 
 ---
 

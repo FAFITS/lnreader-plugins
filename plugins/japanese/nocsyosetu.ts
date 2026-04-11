@@ -11,7 +11,7 @@ class NocSyosetu implements Plugin.PagePlugin {
     name = 'NocSyosetu';
     icon = 'src/jp/nocsyosetu/icon.png';
     site = 'https://noc.syosetu.com/';
-    version = '1.0.7';
+    version = '1.0.8';
     headers = {
         'Cookie': 'over18=yes',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -116,42 +116,22 @@ class NocSyosetu implements Plugin.PagePlugin {
         sourceLang: string = 'auto',
     ): Promise<string> {
         if (!text) return text;
-
-        let lang = targetLang || storage.get('nocsyosetu_translateLang');
-        if (typeof lang !== 'string') {
-            lang = 'en';
-        }
-        lang = lang.trim() || 'en';
-
+        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
         if (lang === sourceLang) return text;
 
         try {
-            const chunks = text.match(/[\s\S]{1,2000}/g) || [text];
-            const translatedChunks = await Promise.all(
-                chunks.map(async (chunk) => {
-                    try {
-                        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
-                            chunk,
-                        )}&_t=${Date.now()}_${lang}`;
-                        const res = await fetchApi(url);
-                        if (!res.ok) return chunk;
-
-                        const json = await res.json();
-                        if (json && json[0]) {
-                            const translated = json[0].map((item: any) => item[0]).join('');
-                            if (translated) return translated;
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                    return chunk;
-                })
-            );
-            const result = translatedChunks.join('');
-            return result || text;
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
+                text,
+            )}&_t=${Date.now()}_${lang}`;
+            const res = await fetchApi(url);
+            const json = await res.json();
+            if (json && json[0]) {
+                return json[0].map((item: any) => item[0]).join('');
+            }
         } catch (e) {
-            return text;
+            // ignore error
         }
+        return text;
     }
 
     isJapanese(text: string): boolean {
@@ -221,10 +201,13 @@ class NocSyosetu implements Plugin.PagePlugin {
         const $ = loadCheerio(body);
         const novels = this.parseNovels($);
 
-        if (storage.get('nocsyosetu_translate') && novels.length > 0) {
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate && novels.length > 0) {
+            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
+                    const translated = await this.translateService(n.name);
+                    n.name = `[${langCode}] ${translated}`;
                 })
             );
         }
@@ -273,8 +256,12 @@ class NocSyosetu implements Plugin.PagePlugin {
         let summary = $('#novel_ex, .p-novel__summary').text().trim();
         let genres = $('meta[name="keywords"]').attr('content') || '';
 
-        if (storage.get('nocsyosetu_translate')) {
-            name = await this.translateService(name);
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate) {
+            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
+            const translatedName = await this.translateService(name);
+            name = `[${langCode}] ${translatedName}`;
+
             summary = await this.translateService(summary);
             if (genres) {
                 genres = await this.translateService(genres);
@@ -352,10 +339,13 @@ class NocSyosetu implements Plugin.PagePlugin {
         const $ = loadCheerio(body);
         const novels = this.parseNovels($);
 
-        if (storage.get('nocsyosetu_translate') && novels.length > 0) {
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate && novels.length > 0) {
+            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
+                    const translated = await this.translateService(n.name);
+                    n.name = `[${langCode}] ${translated}`;
                 })
             );
         }

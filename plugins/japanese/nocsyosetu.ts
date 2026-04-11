@@ -11,7 +11,7 @@ class NocSyosetu implements Plugin.PagePlugin {
     name = 'NocSyosetu';
     icon = 'src/jp/nocsyosetu/icon.png';
     site = 'https://noc.syosetu.com/';
-    version = '1.0.8';
+    version = '1.1.0';
     headers = {
         'Cookie': 'over18=yes',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -21,12 +21,12 @@ class NocSyosetu implements Plugin.PagePlugin {
     pluginSettings = {
         nocsyosetu_translate: {
             value: false,
-            label: 'Translate Titles & Descriptions (Google Translate)',
+            label: 'Translate Titles & Summaries (Google Translate) - EN Default',
             type: 'Switch',
         },
         nocsyosetu_translateLang: {
             value: 'en',
-            label: 'Target Language (en, vi, th, ...)',
+            label: 'Language (e.g: en, vi, th, ...)',
             type: 'Text',
         },
     };
@@ -201,13 +201,15 @@ class NocSyosetu implements Plugin.PagePlugin {
         const $ = loadCheerio(body);
         const novels = this.parseNovels($);
 
+        if (novels.length === 0) {
+            throw new Error('Cannot load novels. Please check the age gate in WebView. / 作品をロードできません。WebViewで年齢確認を行ってください。');
+        }
+
         const translate = storage.get('nocsyosetu_translate');
         if (translate && novels.length > 0) {
-            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
             await Promise.all(
                 novels.map(async (n) => {
-                    const translated = await this.translateService(n.name);
-                    n.name = `[${langCode}] ${translated}`;
+                    n.name = await this.translateService(n.name);
                 })
             );
         }
@@ -258,10 +260,7 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translate = storage.get('nocsyosetu_translate');
         if (translate) {
-            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
-            const translatedName = await this.translateService(name);
-            name = `[${langCode}] ${translatedName}`;
-
+            name = await this.translateService(name);
             summary = await this.translateService(summary);
             if (genres) {
                 genres = await this.translateService(genres);
@@ -339,13 +338,17 @@ class NocSyosetu implements Plugin.PagePlugin {
         const $ = loadCheerio(body);
         const novels = this.parseNovels($);
 
+        if (novels.length === 0) {
+            if (!body.includes('searchkekka_box') && !body.includes('trackback_list')) {
+                throw new Error('Cannot load results. Please check the age gate in WebView. / 結果をロードできません。WebViewで年齢確認を行ってください。');
+            }
+        }
+
         const translate = storage.get('nocsyosetu_translate');
         if (translate && novels.length > 0) {
-            const langCode = (storage.get('nocsyosetu_translateLang') || 'en').trim().toUpperCase();
             await Promise.all(
                 novels.map(async (n) => {
-                    const translated = await this.translateService(n.name);
-                    n.name = `[${langCode}] ${translated}`;
+                    n.name = await this.translateService(n.name);
                 })
             );
         }

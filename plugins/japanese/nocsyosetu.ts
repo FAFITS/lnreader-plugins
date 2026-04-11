@@ -19,30 +19,20 @@ class NocSyosetu implements Plugin.PagePlugin {
     };
 
     pluginSettings = {
-        nocsyosetu_translate_titles: {
+        nocsyosetu_translate: {
             value: false,
-            label: 'Translate Titles',
-            type: 'Switch',
-        },
-        nocsyosetu_translate_summary: {
-            value: false,
-            label: 'Translate Summary',
-            type: 'Switch',
-        },
-        nocsyosetu_translate_chapters: {
-            value: false,
-            label: 'Translate Chapter Names',
+            label: 'Translate Titles & Summaries (Google Translate) - EN Default',
             type: 'Switch',
         },
         nocsyosetu_translateLang: {
             value: 'en',
-            label: 'Language (e.g: en [default], vi, th, ...)',
+            label: 'Language (e.g: en, vi, th, ...)',
             type: 'Text',
         },
     };
 
     get filters(): Filters {
-        const translate = storage.get('nocsyosetu_translate_titles');
+        const translate = storage.get('nocsyosetu_translate');
         const getLabel = (jp: string, en: string) => translate ? `${jp} (${en})` : jp;
 
         return {
@@ -120,53 +110,28 @@ class NocSyosetu implements Plugin.PagePlugin {
         } satisfies Filters;
     }
 
-    async translateBatch(
-        texts: string[],
-        targetLang?: string,
-        sourceLang: string = 'auto',
-    ): Promise<string[]> {
-        if (texts.length === 0) return [];
-        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
-        if (lang === sourceLang) return texts;
-
-        const results: string[] = [];
-        const chunkSize = 100; // Group 100 titles/chapters per request
-        for (let i = 0; i < texts.length; i += chunkSize) {
-            const chunk = texts.slice(i, i + chunkSize);
-            const joined = chunk.join('\n');
-            try {
-                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
-                    joined,
-                )}&_t=${Date.now()}_${lang}`;
-                const res = await fetchApi(url);
-                const json = await res.json();
-                if (json && json[0]) {
-                    const translatedFull = json[0].map((item: any) => item[0]).join('');
-                    const translatedLines = translatedFull.split('\n');
-
-                    for (let j = 0; j < chunk.length; j++) {
-                        const original = chunk[j];
-                        const translated = (translatedLines[j] || original).trim();
-                        results.push(translated.charAt(0).toUpperCase() + translated.slice(1));
-                    }
-                } else {
-                    results.push(...chunk);
-                }
-            } catch (e) {
-                results.push(...chunk);
-            }
-        }
-        return results;
-    }
-
     async translateService(
         text: string,
         targetLang?: string,
         sourceLang: string = 'auto',
     ): Promise<string> {
         if (!text) return text;
-        const res = await this.translateBatch([text], targetLang, sourceLang);
-        return res[0] || text;
+        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
+        if (lang === sourceLang) return text;
+
+        try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
+                text,
+            )}&_t=${Date.now()}_${lang}`;
+            const res = await fetchApi(url);
+            const json = await res.json();
+            if (json && json[0]) {
+                return json[0].map((item: any) => item[0]).join('');
+            }
+        } catch (e) {
+            // ignore error
+        }
+        return text;
     }
 
     isJapanese(text: string): boolean {
@@ -240,11 +205,13 @@ class NocSyosetu implements Plugin.PagePlugin {
             throw new Error('Cannot load novels. Please check the age gate in WebView. / 作品をロードできません。WebViewで年齢確認を行ってください。');
         }
 
-        const translateTitles = storage.get('nocsyosetu_translate_titles');
-        if (translateTitles && novels.length > 0) {
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate && novels.length > 0) {
+            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
+            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
+                    n.name = (await this.translateService(n.name)) + suffix;
                 })
             );
         }
@@ -293,14 +260,11 @@ class NocSyosetu implements Plugin.PagePlugin {
         let summary = $('#novel_ex, .p-novel__summary').text().trim();
         let genres = $('meta[name="keywords"]').attr('content') || '';
 
-        const translateTitles = storage.get('nocsyosetu_translate_titles');
-        const translateSummary = storage.get('nocsyosetu_translate_summary');
-        const translateChapters = storage.get('nocsyosetu_translate_chapters');
-
-        if (translateTitles) {
-            name = await this.translateService(name);
-        }
-        if (translateSummary) {
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate) {
+            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
+            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
+            name = (await this.translateService(name)) + suffix;
             summary = await this.translateService(summary);
             if (genres) {
                 genres = await this.translateService(genres);
@@ -308,10 +272,18 @@ class NocSyosetu implements Plugin.PagePlugin {
         }
 
         const chapters = this.parseChapters($);
-        if (translateChapters && chapters.length > 0) {
-            const chapterNames = chapters.map((c) => c.name);
-            const translatedNames = await this.translateBatch(chapterNames);
-            chapters.forEach((c, i) => c.name = translatedNames[i] || c.name);
+
+        if (
+            chapters.length === 0 &&
+            ($('.p-novel__body').length > 0 ||
+                $('#novel_honbun').length > 0 ||
+                $('.novel_view').length > 0)
+        ) {
+            chapters.push({
+                name,
+                path: novelUrl,
+                releaseTime: '',
+            });
         }
 
         const novel: Plugin.SourceNovel & { totalPages: number } = {
@@ -335,16 +307,8 @@ class NocSyosetu implements Plugin.PagePlugin {
         const body = await result.text();
         const $ = loadCheerio(body);
 
-        const chapters = this.parseChapters($);
-        const translateChapters = storage.get('nocsyosetu_translate_chapters');
-        if (translateChapters && chapters.length > 0) {
-            const chapterNames = chapters.map((c) => c.name);
-            const translatedNames = await this.translateBatch(chapterNames);
-            chapters.forEach((c, i) => c.name = translatedNames[i] || c.name);
-        }
-
         return {
-            chapters,
+            chapters: this.parseChapters($),
         };
     }
 
@@ -354,9 +318,26 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const $ = loadCheerio(body);
 
-        const content = $('.p-novel__body').html() || '';
+        let chapterContent = '';
 
-        return content;
+        const preface = $('.p-novel__preface').html() || $('#novel_p').html();
+        if (preface) {
+            chapterContent += `<div class="preface">${preface}</div><hr/>`;
+        }
+
+        const bodyContent =
+            $('.p-novel__body').html() ||
+            $('#novel_honbun').html() ||
+            $('.novel_view').html() ||
+            '';
+        chapterContent += bodyContent;
+
+        const afterword = $('.p-novel__afterword').html() || $('#novel_a').html();
+        if (afterword) {
+            chapterContent += `<hr/><div class="afterword">${afterword}</div>`;
+        }
+
+        return chapterContent;
     }
 
     async searchNovels(
@@ -399,11 +380,13 @@ class NocSyosetu implements Plugin.PagePlugin {
             }
         }
 
-        const translateTitles = storage.get('nocsyosetu_translate_titles');
-        if (translateTitles && novels.length > 0) {
+        const translate = storage.get('nocsyosetu_translate');
+        if (translate && novels.length > 0) {
+            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
+            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
+                    n.name = (await this.translateService(n.name)) + suffix;
                 })
             );
         }

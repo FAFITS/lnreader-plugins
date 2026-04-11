@@ -120,29 +120,53 @@ class NocSyosetu implements Plugin.PagePlugin {
         } satisfies Filters;
     }
 
+    async translateBatch(
+        texts: string[],
+        targetLang?: string,
+        sourceLang: string = 'auto',
+    ): Promise<string[]> {
+        if (texts.length === 0) return [];
+        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
+        if (lang === sourceLang) return texts;
+
+        const results: string[] = [];
+        const chunkSize = 100; // Group 100 titles/chapters per request
+        for (let i = 0; i < texts.length; i += chunkSize) {
+            const chunk = texts.slice(i, i + chunkSize);
+            const joined = chunk.join('\n');
+            try {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
+                    joined,
+                )}&_t=${Date.now()}_${lang}`;
+                const res = await fetchApi(url);
+                const json = await res.json();
+                if (json && json[0]) {
+                    const translatedFull = json[0].map((item: any) => item[0]).join('');
+                    const translatedLines = translatedFull.split('\n');
+
+                    for (let j = 0; j < chunk.length; j++) {
+                        const original = chunk[j];
+                        const translated = (translatedLines[j] || original).trim();
+                        results.push(translated.charAt(0).toUpperCase() + translated.slice(1));
+                    }
+                } else {
+                    results.push(...chunk);
+                }
+            } catch (e) {
+                results.push(...chunk);
+            }
+        }
+        return results;
+    }
+
     async translateService(
         text: string,
         targetLang?: string,
         sourceLang: string = 'auto',
     ): Promise<string> {
         if (!text) return text;
-        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
-        if (lang === sourceLang) return text;
-
-        try {
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
-                text,
-            )}&_t=${Date.now()}_${lang}`;
-            const res = await fetchApi(url);
-            const json = await res.json();
-            if (json && json[0]) {
-                const translated = json[0].map((item: any) => item[0]).join('');
-                return translated.charAt(0).toUpperCase() + translated.slice(1);
-            }
-        } catch (e) {
-            // ignore error
-        }
-        return text;
+        const res = await this.translateBatch([text], targetLang, sourceLang);
+        return res[0] || text;
     }
 
     isJapanese(text: string): boolean {
@@ -218,11 +242,9 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translateTitles = storage.get('nocsyosetu_translate_titles');
         if (translateTitles && novels.length > 0) {
-            await Promise.all(
-                novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
-                })
-            );
+            const names = novels.map((n) => n.name);
+            const translatedNames = await this.translateBatch(names);
+            novels.forEach((n, i) => n.name = translatedNames[i] || n.name);
         }
 
         return novels;
@@ -285,11 +307,9 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const chapters = this.parseChapters($);
         if (translateChapters && chapters.length > 0) {
-            await Promise.all(
-                chapters.map(async (c) => {
-                    c.name = await this.translateService(c.name);
-                })
-            );
+            const chapterNames = chapters.map((c) => c.name);
+            const translatedNames = await this.translateBatch(chapterNames);
+            chapters.forEach((c, i) => c.name = translatedNames[i] || c.name);
         }
 
         const novel: Plugin.SourceNovel & { totalPages: number } = {
@@ -316,11 +336,9 @@ class NocSyosetu implements Plugin.PagePlugin {
         const chapters = this.parseChapters($);
         const translateChapters = storage.get('nocsyosetu_translate_chapters');
         if (translateChapters && chapters.length > 0) {
-            await Promise.all(
-                chapters.map(async (c) => {
-                    c.name = await this.translateService(c.name);
-                })
-            );
+            const chapterNames = chapters.map((c) => c.name);
+            const translatedNames = await this.translateBatch(chapterNames);
+            chapters.forEach((c, i) => c.name = translatedNames[i] || c.name);
         }
 
         return {
@@ -381,11 +399,9 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translateTitles = storage.get('nocsyosetu_translate_titles');
         if (translateTitles && novels.length > 0) {
-            await Promise.all(
-                novels.map(async (n) => {
-                    n.name = await this.translateService(n.name);
-                })
-            );
+            const names = novels.map((n) => n.name);
+            const translatedNames = await this.translateBatch(names);
+            novels.forEach((n, i) => n.name = translatedNames[i] || n.name);
         }
 
         return novels;

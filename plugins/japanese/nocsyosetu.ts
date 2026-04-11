@@ -11,7 +11,7 @@ class NocSyosetu implements Plugin.PagePlugin {
     name = 'NocSyosetu';
     icon = 'src/jp/nocsyosetu/icon.png';
     site = 'https://noc.syosetu.com/';
-    version = '1.0.5';
+    version = '1.0.7';
     headers = {
         'Cookie': 'over18=yes',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -117,7 +117,12 @@ class NocSyosetu implements Plugin.PagePlugin {
     ): Promise<string> {
         if (!text) return text;
 
-        const lang = (targetLang || storage.get('nocsyosetu_translateLang') || 'en').trim();
+        let lang = targetLang || storage.get('nocsyosetu_translateLang');
+        if (typeof lang !== 'string') {
+            lang = 'en';
+        }
+        lang = lang.trim() || 'en';
+
         if (lang === sourceLang) return text;
 
         try {
@@ -127,7 +132,7 @@ class NocSyosetu implements Plugin.PagePlugin {
                     try {
                         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${lang}&dt=t&q=${encodeURIComponent(
                             chunk,
-                        )}&_t=${Date.now()}`;
+                        )}&_t=${Date.now()}_${lang}`;
                         const res = await fetchApi(url);
                         if (!res.ok) return chunk;
 

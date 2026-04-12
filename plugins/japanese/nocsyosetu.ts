@@ -207,11 +207,9 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translate = storage.get('nocsyosetu_translate');
         if (translate && novels.length > 0) {
-            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
-            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = (await this.translateService(n.name)) + suffix;
+                    n.name = await this.translateService(n.name);
                 })
             );
         }
@@ -262,9 +260,7 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translate = storage.get('nocsyosetu_translate');
         if (translate) {
-            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
-            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
-            name = (await this.translateService(name)) + suffix;
+            name = await this.translateService(name);
             summary = await this.translateService(summary);
             if (genres) {
                 genres = await this.translateService(genres);
@@ -382,11 +378,9 @@ class NocSyosetu implements Plugin.PagePlugin {
 
         const translate = storage.get('nocsyosetu_translate');
         if (translate && novels.length > 0) {
-            const lang = (storage.get('nocsyosetu_translateLang') || 'en').trim().toLowerCase();
-            const suffix = '\u200B'.repeat(lang.length % 5 + 1);
             await Promise.all(
                 novels.map(async (n) => {
-                    n.name = (await this.translateService(n.name)) + suffix;
+                    n.name = await this.translateService(n.name);
                 })
             );
         }

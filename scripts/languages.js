@@ -1,7 +1,7 @@
 export default {
   // Arabic: '‎العربية',
   // Chinese: '中文, 汉语, 漢語',
-  // English: 'English',
+  English: 'English',
   // French: 'Français',
   // Indonesian: 'Bahasa Indonesia',
   Japanese: '日本語',

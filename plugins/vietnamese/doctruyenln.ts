@@ -9,11 +9,16 @@ class DocTruyenLNPlugin implements Plugin.PagePlugin {
     name = 'DocTruyenLN';
     icon = 'src/vi/doctruyenln/icon.png';
     site = 'https://quykiep.com';
-    version = '1.0.4';
+    version = '1.0.3';
 
     imageRequestInit = {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Referer': 'https://quykiep.com',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
         },
     };
 
@@ -34,7 +39,8 @@ class DocTruyenLNPlugin implements Plugin.PagePlugin {
 
         const novelItems = loadedCheerio('div[itemtype*="Book"], div.flex.flex-col:has(a[href*="/truyen/"])');
 
-        novelItems.each((_, ele) => {
+        novelItems.each((index, ele) => {
+            if (index % 2 !== 0) return;
             const data = loadedCheerio(ele);
             const titleEl = data.find('a[href*="/truyen/"]').filter((_, el) => {
                 const $el = loadedCheerio(el);
@@ -45,7 +51,6 @@ class DocTruyenLNPlugin implements Plugin.PagePlugin {
             const path = titleEl.attr('href') || data.find('a[href*="/truyen/"]').first().attr('href');
 
             if (!name || !path) return;
-
             const cover = this.getCover(data, loadedCheerio);
 
             if (name.length > 2 && !novels.some(n => n.path === path)) {

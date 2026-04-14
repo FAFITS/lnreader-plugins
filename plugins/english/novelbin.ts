@@ -20,16 +20,23 @@ class NovelBin implements Plugin.PagePlugin {
 
     parseNovels(loadedCheerio: CheerioAPI): Plugin.NovelItem[] {
         const novels: Plugin.NovelItem[] = [];
-
         loadedCheerio('.list.list-novel > .row').each((idx, ele) => {
             const titleEl = loadedCheerio(ele).find('h3.novel-title > a');
             const novelName = titleEl.text().trim();
             const novelUrl = titleEl.attr('href');
 
             const imgEl = loadedCheerio(ele).find('img.cover');
-            const novelCover =
+            let novelCover =
                 imgEl.attr('data-src') || imgEl.attr('src') || defaultCover;
 
+            // một ví dụ về kết quả của novelCover : https://images.novelbin.me/novel_200_89/i-can-gain-one-skill-point-per-second.jpg
+            // muốn biến url thành https://images.novelbin.me/novel/the-prime-minister-seduced-me-to-have-babies.jpg
+            const regex = /\/novel_\d+_\d+\//;
+            const match = novelCover.match(regex);
+            if (match) {
+                novelCover = novelCover.replace(match[0], '/novel/');
+            }
+            console.log(novelCover);
             if (novelUrl && novelName) {
                 novels.push({
                     name: novelName,
@@ -64,22 +71,18 @@ class NovelBin implements Plugin.PagePlugin {
         pageNo: number,
         { filters }: Plugin.PopularNovelsOptions<typeof this.filters>,
     ): Promise<Plugin.NovelItem[]> {
-        let sortPath = 'novelbin-hot';
+        let url = `${this.site}/sort/novelbin-hot?page=${pageNo}`;
 
         if (filters) {
-            if (filters.sort.value !== '') {
-                sortPath = filters.sort.value;
-            }
-            if (filters.genre.value !== '') {
-                const url = `${this.site}/novelbin-genres/${filters.genre.value}?page=${pageNo}`;
-                const result = await fetchApi(url, { headers: this.headers });
-                const body = await result.text();
-                const loadedCheerio = parseHTML(body);
-                return this.parseNovels(loadedCheerio);
+            if (filters.tag?.value) {
+                url = `${this.site}/tag/${encodeURIComponent(filters.tag.value)}?page=${pageNo}`;
+            } else if (filters.genre?.value) {
+                url = `${this.site}/novelbin-genres/${filters.genre.value}?page=${pageNo}`;
+            } else if (filters.sort?.value) {
+                url = `${this.site}/sort/${filters.sort.value}?page=${pageNo}`;
             }
         }
 
-        const url = `${this.site}/sort/${sortPath}?page=${pageNo}`;
         const result = await fetchApi(url, { headers: this.headers });
         const body = await result.text();
         const loadedCheerio = parseHTML(body);
@@ -179,9 +182,8 @@ class NovelBin implements Plugin.PagePlugin {
         const url = this.site + chapterPath;
         const result = await fetchApi(url, { headers: this.headers });
         const body = await result.text();
-        // if include Just a moment... , throw error check captra in webview
         if (body.includes('Just a moment...')) {
-            throw new Error('Please go to Webview and check captcha');
+            throw new Error('Please go to Webview and check Captcha');
         }
         const loadedCheerio = parseHTML(body);
 
@@ -287,6 +289,11 @@ class NovelBin implements Plugin.PagePlugin {
                 { label: 'Yaoi', value: 'yaoi' },
                 { label: 'Yuri', value: 'yuri' },
             ],
+        },
+        tag: {
+            type: FilterTypes.TextInput,
+            label: 'Tag',
+            value: '',
         },
     } satisfies Filters;
 }

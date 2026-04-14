@@ -13,6 +13,6 @@ export default {
   // Thai: 'ไทย',
   // Turkish: 'Türkçe',
   // Ukrainian: 'Українська',
-  // Vietnamese: 'Tiếng Việt',
+  Vietnamese: 'Tiếng Việt',
   // Multi: 'Multi',
 };

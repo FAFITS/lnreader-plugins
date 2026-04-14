@@ -196,7 +196,7 @@ class DocTruyenLNPlugin implements Plugin.PagePlugin {
         return (json.data || []).map(item => ({
             name: item.name,
             path: `/truyen/${item.slug}`,
-            cover: this.absoluteUrl(item.coverUrl.replace('default.jpg', '150.jpg')),
+            cover: `https://static.quykiep.com/${item.coverUrl.replace('default.jpg', '150.jpg')}`,
         })).filter(novel => novel.name && novel.path);
     }
 

@@ -10,7 +10,7 @@ class NovelBin implements Plugin.PagePlugin {
     name = 'Novel Bin';
     icon = 'src/en/novelbin/icon.png';
     site = 'https://novelbin.me';
-    version = '1.0.1';
+    version = '1.0.2';
 
     headers = {
         'User-Agent':
@@ -28,15 +28,11 @@ class NovelBin implements Plugin.PagePlugin {
             const imgEl = loadedCheerio(ele).find('img.cover');
             let novelCover =
                 imgEl.attr('data-src') || imgEl.attr('src') || defaultCover;
-
-            // một ví dụ về kết quả của novelCover : https://images.novelbin.me/novel_200_89/i-can-gain-one-skill-point-per-second.jpg
-            // muốn biến url thành https://images.novelbin.me/novel/the-prime-minister-seduced-me-to-have-babies.jpg
             const regex = /\/novel_\d+_\d+\//;
             const match = novelCover.match(regex);
             if (match) {
                 novelCover = novelCover.replace(match[0], '/novel/');
             }
-            console.log(novelCover);
             if (novelUrl && novelName) {
                 novels.push({
                     name: novelName,
@@ -74,10 +70,11 @@ class NovelBin implements Plugin.PagePlugin {
         let url = `${this.site}/sort/novelbin-hot?page=${pageNo}`;
 
         if (filters) {
+            const status = filters.status?.value || '';
             if (filters.tag?.value) {
-                url = `${this.site}/tag/${encodeURIComponent(filters.tag.value)}?page=${pageNo}`;
+                url = `${this.site}/tag/${encodeURIComponent(filters.tag.value)}${status}?page=${pageNo}`;
             } else if (filters.genre?.value) {
-                url = `${this.site}/novelbin-genres/${filters.genre.value}?page=${pageNo}`;
+                url = `${this.site}/novelbin-genres/${filters.genre.value}${status}?page=${pageNo}`;
             } else if (filters.sort?.value) {
                 url = `${this.site}/sort/${filters.sort.value}?page=${pageNo}`;
             }
@@ -117,7 +114,17 @@ class NovelBin implements Plugin.PagePlugin {
             loadedCheerio('meta[property="og:image"]').attr('content') ||
             defaultCover;
 
-        novel.summary = loadedCheerio('.desc-text').text().trim();
+        const sumary = loadedCheerio('.desc-text').text().trim();
+        const tags = loadedCheerio('.tag-container a')
+            .map((index, element) => {
+                let text = loadedCheerio(element).text().trim();
+                return text.split(' ')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+            })
+            .get()
+            .join(', ');
+        novel.summary = `Tags : ${tags}\n\n${sumary}`
 
         const authorLi = loadedCheerio('ul.info-meta li').filter((_, el) => {
             return loadedCheerio(el).find('h3').text().includes('Author');
@@ -224,7 +231,7 @@ class NovelBin implements Plugin.PagePlugin {
     filters = {
         sort: {
             type: FilterTypes.Picker,
-            label: 'Sort By',
+            label: 'Sort By (Disabled if Genre/Tag selected)',
             value: 'novelbin-hot',
             options: [
                 { label: 'Hot', value: 'novelbin-hot' },
@@ -235,7 +242,7 @@ class NovelBin implements Plugin.PagePlugin {
         },
         genre: {
             type: FilterTypes.Picker,
-            label: 'Genre',
+            label: 'Genre (Disabled if Tag selected)',
             value: '',
             options: [
                 { label: 'All', value: '' },
@@ -452,6 +459,15 @@ class NovelBin implements Plugin.PagePlugin {
                 { label: 'Weak to Strong', value: 'WEAK TO STRONG' },
                 { label: 'Wealthy Characters', value: 'WEALTHY CHARACTERS' },
                 { label: 'Younger Sisters', value: 'YOUNGER SISTERS' },
+            ],
+        },
+        status: {
+            type: FilterTypes.Picker,
+            label: 'Status (Genre & Tag only)',
+            value: '',
+            options: [
+                { label: 'All Novels', value: '' },
+                { label: 'Completed Novels Only', value: '/completed' },
             ],
         },
     } satisfies Filters;

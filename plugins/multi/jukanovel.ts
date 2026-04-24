@@ -10,7 +10,7 @@ class JukaNovelPlugin implements Plugin.PluginBase {
     name = 'JukaNovel';
     icon = 'src/multi/jukanovel/icon.png';
     site = 'https://jukaza.site';
-    version = '1.0.0';
+    version = '1.0.1';
     async popularNovels(
         pageNo: number,
         {
@@ -60,7 +60,7 @@ class JukaNovelPlugin implements Plugin.PluginBase {
 
             if (path) {
                 chapters.push({
-                    name: `${chapterName} [${status}]`,
+                    name: `[${status}] ${chapterName}`,
                     path: path.replace(this.site, ''),
                     chapterNumber: chapterNumber ? parseInt(chapterNumber) : undefined,
                 });
@@ -134,7 +134,7 @@ class JukaNovelPlugin implements Plugin.PluginBase {
         content = content.replace(/<span class="ann-marker"[^>]*>.*?<span class="ann-bubble">(.*?)<\/span><\/span>/gs, (match, noteContent) => {
             const noteId = notes.length + 1;
             notes.push(noteContent);
-            return `<span id="anchor-note-${noteId}" class="note-icon none-print inline note-tooltip" data-tooltip-content="#note${noteId} .note-content" data-note-id="note${noteId}"><i class="fas fa-sticky-note"></i></span><a class="inline-print none" href="#note${noteId}">[note]</a>`;
+            return ` <span id="anchor-note-${noteId}" class="note-icon none-print inline note-tooltip" data-tooltip-content="#note${noteId} .note-content" data-note-id="note${noteId}"><i class="fas fa-sticky-note"></i></span><a class="inline-print none" href="#note${noteId}">[note]</a>`;
         });
 
         if (

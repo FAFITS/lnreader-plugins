@@ -1,0 +1,11 @@
+[
+	{
+		"id": "novelbin.me",
+		"name": "Novel Bin",
+		"site": "https://novelbin.me",
+		"lang": "English",
+		"version": "1.0.2",
+		"url": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/plugins/v3.0.0/.js/src/plugins/english/novelbin.js",
+		"iconUrl": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/plugins/v3.0.0/public/static/src/en/novelbin/icon.png"
+	}
+]

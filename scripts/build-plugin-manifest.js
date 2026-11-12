@@ -1,8 +1,11 @@
-import path from 'path';
-import fs from 'fs';
-import languages from './languages.js';
 import { execSync } from 'child_process';
-import { minify } from './terser.js';
+import fs from 'fs';
+import path from 'path';
+import process from 'process';
+import isValidFilename from 'valid-filename';
+
+import languages from './languages.js';
+import { readPlugin } from './plugin-build-utils.js';
 
 const REMOTE = execSync('git remote get-url origin')
   .toString()
@@ -20,8 +23,10 @@ const USER_CONTENT_LINK = process.env.USER_CONTENT_BASE
   : `https://raw.githubusercontent.com/${USERNAME}/${REPO}/${BRANCH}`;
 
 const STATIC_LINK = `${USER_CONTENT_LINK}/public/static`;
-// Use legacy .js/src/plugins path for backward compatibility
-const PLUGIN_LINK = `${USER_CONTENT_LINK}/.js/src/plugins`;
+// Use .js/plugins in dev (since it's not copied), otherwise use legacy .js/src/plugins
+const PLUGIN_LINK = process.env.USER_CONTENT_BASE
+  ? `${USER_CONTENT_LINK}/.js/plugins`
+  : `${USER_CONTENT_LINK}/.js/src/plugins`;
 
 const DIST_DIR = '.dist';
 
@@ -65,26 +70,6 @@ function compareVersions(a, b) {
   return 0;
 }
 
-const createRecursiveProxy = () => {
-  const target = {};
-  const handler = {
-    get(target, prop) {
-      if (prop === 'get') {
-        return a => a;
-      }
-      if (!target[prop]) {
-        target[prop] = createRecursiveProxy();
-      }
-      return target[prop];
-    },
-  };
-  return new Proxy(target, handler);
-};
-
-const proxy = createRecursiveProxy();
-
-const _require = () => proxy;
-
 const COMPILED_PLUGIN_DIR = './.js/plugins';
 
 for (let language in languages) {
@@ -103,27 +88,40 @@ for (let language in languages) {
 
   plugins.forEach(plugin => {
     if (plugin.startsWith('.')) return;
-    minify(path.join(langPath, plugin));
-    const rawCode = fs.readFileSync(
-      `${COMPILED_PLUGIN_DIR}/${language.toLowerCase()}/${plugin}`,
-      'utf-8',
+
+    const instance = readPlugin(
+      path.join(COMPILED_PLUGIN_DIR, language.toLowerCase(), plugin),
     );
-    const instance = Function(
-      'require',
-      'module',
-      `const exports = module.exports = {}; 
-      ${rawCode}; 
-      return exports.default`,
-    )(_require, {});
-    const { id, name, site, version, icon, customJS, customCSS, filters } =
-      instance;
+    const {
+      id,
+      name,
+      site,
+      version,
+      icon,
+      customJS,
+      customCSS,
+      filters,
+      contentWarning,
+      contentType,
+      isNekoriPlugin,
+      minApiVersion,
+    } = instance;
+    if (!isValidFilename(id))
+      throw new Error(
+        `This plugin ID (${id}) is invalid and cannot be used in the application.`,
+      );
     const normalisedName = name.replace(/\[.*\]/, '');
 
     // --only-new logic
     if (
       ONLY_NEW &&
       existingPlugins[id] &&
-      compareVersions(existingPlugins[id].version, version) >= 0
+      (compareVersions(existingPlugins[id].version, version) > 0 ||
+        (compareVersions(existingPlugins[id].version, version) === 0 &&
+          existingPlugins[id].isNekoriPlugin ===
+            (isNekoriPlugin === true ? true : undefined) &&
+          existingPlugins[id].minApiVersion ===
+            (isNekoriPlugin === true ? minApiVersion : undefined)))
     ) {
       // console.log(`   Skipping ${name} (${id}) - not newer`, '\r🔁');
       return;
@@ -139,6 +137,10 @@ for (let language in languages) {
       iconUrl: `${STATIC_LINK}/${icon || 'siteNotAvailable.png'}`,
       customJS: customJS ? `${STATIC_LINK}/${customJS}` : undefined,
       customCSS: customCSS ? `${STATIC_LINK}/${customCSS}` : undefined,
+      contentWarning,
+      contentType,
+      isNekoriPlugin,
+      minApiVersion,
     };
 
     if (pluginSet.has(id)) {
@@ -147,6 +149,8 @@ for (let language in languages) {
     } else {
       pluginSet.add(id);
     }
+    // Replace the previous entry when an API requirement changes at the same version.
+    json = json.filter(previous => previous.id !== id);
     json.push(info);
 
     pluginsPerLanguage[language] += 1;
@@ -203,21 +207,14 @@ if (!ONLY_NEW)
     `,
   );
 
-// check for broken plugins
+// List disabled plugins in build logs.
 for (let language in languages) {
-  const pluginDirPath = path.join('./plugins', language.toLocaleLowerCase());
-  if (!fs.existsSync(pluginDirPath)) continue;
-  const tsFiles = fs.readdirSync(pluginDirPath);
-  tsFiles
-    .filter(f => f.endsWith('.broken.ts'))
-    .forEach(fn => {
-      console.error(
-        language.toLocaleLowerCase() +
-        '/' +
-        fn.replace('.broken.ts', '') +
-        ' ❌',
-      );
-    });
+  const langPath = path.join('./plugins', language.toLocaleLowerCase());
+  if (!fs.existsSync(langPath)) continue;
+  fs.readdirSync(langPath).forEach(fn => {
+    if (fn.startsWith('broken_'))
+      console.error(language.toLocaleLowerCase() + '/' + fn.slice(7) + ' ❌');
+  });
 }
 
 console.log(jsonPath);

@@ -1,6 +1,6 @@
 $current=$(git rev-parse --abbrev-ref HEAD)
 $version=$(node -e "console.log(require('./package.json').version);")
-$dist="plugins/v$($version)"
+$dist="nekori/v$($version)"
 
 echo "Publishing plugins: $current -> $dist (v$version)"
 
@@ -19,11 +19,11 @@ if(-Not $?){
 
 git reset
 rm -r -fo .js
-npm run clean:multisrc
-npm run build:multisrc
-echo "Compiling TypeScript..."
-npx tsc --project tsconfig.production.json
-npm run build:manifest
+npm run build:full
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Plugin build failed; publishing aborted."
+    exit 1
+}
 
 if (-not (Test-Path .dist) -or -not (Get-ChildItem -Path .dist -Force)) {
     echo "❌ ERROR: Manifest generation failed - .dist is missing or empty"

@@ -1,12 +1,16 @@
-import React from 'react';
 import { Moon, Sun } from 'lucide-react';
+import React from 'react';
 
-import { Plugin } from '@/types/plugin';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/hooks/useTheme';
+import {
+  getPluginDisplayName,
+  getPluginNameColor,
+} from '@/lib/plugin-metadata';
+import { Plugin } from '@/types/plugin';
 
 type PluginHeaderProps = {
-  selectedPlugin?: Plugin.PluginBase;
+  selectedPlugin?: Plugin.PluginSource;
 };
 
 export default function PluginHeader({ selectedPlugin }: PluginHeaderProps) {
@@ -23,14 +27,21 @@ export default function PluginHeader({ selectedPlugin }: PluginHeaderProps) {
       <div className="px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm bg-[var(--color-accent-soft)] text-xl font-semibold text-[var(--color-accent-strong)] transition-colors">
-            読
+            ね
           </span>
           <div>
             <h1 className="text-sm font-semibold text-foreground">
               Plugin Playground
             </h1>
-            <p className="text-xs text-muted-foreground">
-              {selectedPlugin?.name}
+            <p
+              className="text-xs text-muted-foreground"
+              style={{
+                color: selectedPlugin
+                  ? getPluginNameColor(selectedPlugin)
+                  : undefined,
+              }}
+            >
+              {selectedPlugin ? getPluginDisplayName(selectedPlugin) : ''}
             </p>
           </div>
         </div>

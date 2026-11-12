@@ -1,4 +1,12 @@
-import React, { useEffect, useState, ReactNode } from 'react';
+import {
+  AnyFilterValue,
+  Filters,
+  FilterToValues,
+  FilterTypes,
+} from '@libs/filterInputs';
+import { RotateCcw } from 'lucide-react';
+import React, { ReactNode, useEffect, useState } from 'react';
+
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -8,36 +16,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import {
-  AnyFilterValue,
-  Filters,
-  FilterToValues,
-  FilterTypes,
-} from '@libs/filterInputs';
+import { getValueFor } from '@/lib/filter-utils';
+
+import { CheckboxFilter } from './checkbox-filter';
+import { ExcludableCheckboxFilter } from './excludable-checkbox-filter';
 import { PickerFilter } from './picker-filter';
 import { SwitchFilter } from './switch-filter';
 import { TextFilter } from './text-filter';
-import { CheckboxFilter } from './checkbox-filter';
-import { ExcludableCheckboxFilter } from './excludable-checkbox-filter';
-import { RotateCcw } from 'lucide-react';
 
 const renderFilters = (
   filters: Filters | undefined,
   values: FilterToValues<Filters> | undefined,
   set: (key: string, v: AnyFilterValue) => void,
 ): React.ReactNode => {
-  const isValueCorrectType = <T extends AnyFilterValue>(
-    o: AnyFilterValue,
-    f: T,
-  ): o is T => {
-    const checkIfIsCorrectObjectType = (o: AnyFilterValue, f: T): o is T => {
-      const areArrays = Array.isArray(o) && Array.isArray(f);
-      const areObjects = typeof o === 'object' && typeof f === 'object';
-      return areArrays || areObjects;
-    };
-    return typeof o === typeof f || checkIfIsCorrectObjectType(o, f);
-  };
-
   if (!filters || !values) return null;
 
   return (
@@ -49,13 +40,7 @@ const renderFilters = (
         }
         switch (filter.type) {
           case FilterTypes.Picker: {
-            const value = values[key].value;
-            if (!isValueCorrectType<typeof filter.value>(value, filter.value)) {
-              console.error(
-                `FilterValue for filter [${key}] has a wrong type!`,
-              );
-              return null;
-            }
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
             return (
               <PickerFilter
                 key={`picker_filter_${key}`}
@@ -66,13 +51,7 @@ const renderFilters = (
             );
           }
           case FilterTypes.Switch: {
-            const value = values[key].value;
-            if (!isValueCorrectType<typeof filter.value>(value, filter.value)) {
-              console.error(
-                `FilterValue for filter [${key}] has a wrong type!`,
-              );
-              return null;
-            }
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
             return (
               <SwitchFilter
                 filter={{ key, filter }}
@@ -83,13 +62,7 @@ const renderFilters = (
             );
           }
           case FilterTypes.TextInput: {
-            const value = values[key].value;
-            if (!isValueCorrectType(value, filter.value)) {
-              console.error(
-                `FilterValue for filter [${key}] has a wrong type!`,
-              );
-              return null;
-            }
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
             return (
               <TextFilter
                 filter={{ key, filter }}
@@ -100,13 +73,7 @@ const renderFilters = (
             );
           }
           case FilterTypes.CheckboxGroup: {
-            const value = values[key].value;
-            if (!isValueCorrectType(value, filter.value)) {
-              console.error(
-                `FilterValue for filter [${key}] has a wrong type!`,
-              );
-              return null;
-            }
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
             return (
               <CheckboxFilter
                 filter={{ key, filter }}
@@ -117,13 +84,7 @@ const renderFilters = (
             );
           }
           case FilterTypes.ExcludableCheckboxGroup: {
-            const value = values[key].value;
-            if (!isValueCorrectType(value, filter.value)) {
-              console.error(
-                `FilterValue for filter [${key}] has a wrong type!`,
-              );
-              return null;
-            }
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
             return (
               <ExcludableCheckboxFilter
                 filter={{ key, filter }}

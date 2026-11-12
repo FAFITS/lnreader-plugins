@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { storage } from '@libs/storage';
 import { CheckedState } from '@radix-ui/react-checkbox';
 import { Check } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -13,16 +14,51 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import useDebounce from '@/hooks/useDebounce';
-import { FetchMode } from '@/types/types';
+import { useAppStore } from '@/store';
 
 export default function SettingsSection() {
   const [cookies, setCookies] = useState('');
-  const debouncedCookies = useDebounce(cookies, 500);
-  const [fetchMode, setFetchMode] = useState<FetchMode>(FetchMode.PROXY);
   const [useUserAgent, setUseUserAgent] = useState<CheckedState>(true);
   const [loading, setLoading] = useState(false);
   const [alertVisible, setAlertVisible] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+
+  const debouncedCookies = useDebounce(cookies, 500);
+
+  const plugin = useAppStore(state => state.plugin);
+  const [pluginSettingValues, setPluginSettingValues] = useState<
+    Record<string, any>
+  >({});
+
+  useEffect(() => {
+    if (plugin?.pluginSettings) {
+      const vals: Record<string, any> = {};
+      Object.entries(plugin.pluginSettings).forEach(([key, setting]) => {
+        const stored = storage.get(key);
+        vals[key] = stored !== undefined ? stored : setting.value;
+      });
+      setPluginSettingValues(vals);
+    }
+  }, [plugin]);
+
+  const handlePluginSettingChange = (key: string, value: any) => {
+    setPluginSettingValues(prev => ({ ...prev, [key]: value }));
+    storage.set(key, value);
+    setAlertVisible(true);
+  };
+
+  useEffect(() => {
+    window
+      .electronAPI!.invoke('settings:get')
+      .then((data: any) => {
+        if (data.cookies !== undefined) setCookies(data.cookies || '');
+        if (data.useUserAgent !== undefined) setUseUserAgent(data.useUserAgent);
+      })
+      .catch((err: any) => console.error('Failed to load settings:', err))
+      .finally(() => setInitialLoaded(true));
+  }, []);
 
   useEffect(() => {
     if (alertVisible) {
@@ -32,35 +68,20 @@ export default function SettingsSection() {
   }, [alertVisible]);
 
   useEffect(() => {
+    if (!initialLoaded) return;
     setLoading(true);
-    fetch('settings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        cookies: debouncedCookies,
-        fetchMode: fetchMode,
-        useUserAgent: useUserAgent === true,
-      }),
-    })
-      .then(() => setAlertVisible(true))
-      .catch(error => console.error('Failed to save settings:', error))
-      .finally(() => setLoading(false));
-  }, [debouncedCookies, fetchMode, useUserAgent]);
 
-  const getFetchModeLabel = (mode: FetchMode) => {
-    switch (mode) {
-      case FetchMode.PROXY:
-        return 'Proxy';
-      case FetchMode.NODE_FETCH:
-        return 'Node Fetch';
-      case FetchMode.CURL:
-        return 'Curl';
-      default:
-        return 'Proxy';
-    }
-  };
+    const settingsData = {
+      cookies: debouncedCookies,
+      useUserAgent: useUserAgent === true,
+    };
+
+    window
+      .electronAPI!.invoke('settings:set', settingsData)
+      .then(() => setAlertVisible(true))
+      .catch((error: any) => console.error('Failed to save settings:', error))
+      .finally(() => setLoading(false));
+  }, [debouncedCookies, useUserAgent, initialLoaded]);
 
   return (
     <div className="space-y-6">
@@ -85,6 +106,146 @@ export default function SettingsSection() {
         </div>
 
         <div className="space-y-6">
+          {/* Plugin Settings Section */}
+          {plugin &&
+            plugin.pluginSettings &&
+            Object.keys(plugin.pluginSettings).length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="h-px flex-1 bg-border"></div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    Plugin Settings
+                  </h3>
+                  <div className="h-px flex-1 bg-border"></div>
+                </div>
+
+                <div className="space-y-6">
+                  {Object.entries(plugin.pluginSettings).map(
+                    ([key, setting]) => {
+                      const val = pluginSettingValues[key];
+
+                      if (setting.type === 'Switch') {
+                        return (
+                          <div
+                            key={key}
+                            className="flex items-center justify-between"
+                          >
+                            <Label
+                              htmlFor={`plugin-setting-${key}`}
+                              className="font-semibold text-foreground"
+                            >
+                              {setting.label}
+                            </Label>
+                            <Switch
+                              id={`plugin-setting-${key}`}
+                              checked={val === true}
+                              onCheckedChange={checked =>
+                                handlePluginSettingChange(key, checked)
+                              }
+                            />
+                          </div>
+                        );
+                      }
+
+                      if (setting.type === 'Text' || !setting.type) {
+                        return (
+                          <div key={key} className="space-y-2">
+                            <Label
+                              htmlFor={`plugin-setting-${key}`}
+                              className="font-semibold text-foreground"
+                            >
+                              {setting.label}
+                            </Label>
+                            <Input
+                              id={`plugin-setting-${key}`}
+                              value={val || ''}
+                              onChange={e =>
+                                handlePluginSettingChange(key, e.target.value)
+                              }
+                            />
+                          </div>
+                        );
+                      }
+
+                      if (setting.type === 'Select') {
+                        return (
+                          <div key={key} className="space-y-2">
+                            <Label
+                              htmlFor={`plugin-setting-${key}`}
+                              className="font-semibold text-foreground"
+                            >
+                              {setting.label}
+                            </Label>
+                            <Select
+                              value={String(val)}
+                              onValueChange={v =>
+                                handlePluginSettingChange(key, v)
+                              }
+                            >
+                              <SelectTrigger id={`plugin-setting-${key}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {setting.options.map((opt: any) => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      }
+
+                      if (setting.type === 'CheckboxGroup') {
+                        const selectedVals = Array.isArray(val) ? val : [];
+                        return (
+                          <div key={key} className="space-y-3">
+                            <Label className="font-semibold text-foreground">
+                              {setting.label}
+                            </Label>
+                            <div className="space-y-2">
+                              {setting.options.map((opt: any) => {
+                                const isChecked = selectedVals.includes(
+                                  opt.value,
+                                );
+                                return (
+                                  <div
+                                    key={opt.value}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <Checkbox
+                                      id={`plugin-setting-${key}-${opt.value}`}
+                                      checked={isChecked}
+                                      onCheckedChange={checked => {
+                                        const newArr = checked
+                                          ? [...selectedVals, opt.value]
+                                          : selectedVals.filter(
+                                              (v: string) => v !== opt.value,
+                                            );
+                                        handlePluginSettingChange(key, newArr);
+                                      }}
+                                    />
+                                    <Label
+                                      htmlFor={`plugin-setting-${key}-${opt.value}`}
+                                      className="text-sm cursor-pointer"
+                                    >
+                                      {opt.label}
+                                    </Label>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    },
+                  )}
+                </div>
+              </div>
+            )}
           {/* Request Configuration Section */}
           <div>
             <div className="flex items-center gap-2 mb-4">
@@ -146,50 +307,6 @@ export default function SettingsSection() {
                   Additional cookies to send with requests (optional)
                 </p>
               </div>
-            </div>
-          </div>
-
-          {/* Fetch Settings Section */}
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-px flex-1 bg-border"></div>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Fetch Settings
-              </h3>
-              <div className="h-px flex-1 bg-border"></div>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="fetch-mode"
-                className="font-semibold text-foreground"
-              >
-                Fetch Mode
-              </Label>
-              <Select
-                value={fetchMode.toString()}
-                onValueChange={value =>
-                  setFetchMode(parseInt(value) as FetchMode)
-                }
-              >
-                <SelectTrigger id="fetch-mode">
-                  <SelectValue>{getFetchModeLabel(fetchMode)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={FetchMode.PROXY.toString()}>
-                    Proxy
-                  </SelectItem>
-                  <SelectItem value={FetchMode.NODE_FETCH.toString()}>
-                    Node Fetch
-                  </SelectItem>
-                  <SelectItem value={FetchMode.CURL.toString()}>
-                    Curl
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Select the method used to fetch data from sources
-              </p>
             </div>
           </div>
         </div>

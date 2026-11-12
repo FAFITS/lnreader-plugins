@@ -6,7 +6,7 @@ fi
 
 current=`git rev-parse --abbrev-ref HEAD`
 version=`node -e "console.log(require('./package.json').version);"`
-dist="plugins/v$version"
+dist="nekori/v$version"
 
 echo "Publishing plugins: $current -> $dist (v$version)"
 
@@ -29,12 +29,9 @@ if [[ "$1" == "--all-branches" ]]; then
             git branch -D $dist
         fi
         git stash pop
-        npm run clean:multisrc
-        npm run build:multisrc
-        echo "Compiling TypeScript..."
-        npx tsc --project tsconfig.production.json
+        npm run build:prepare || exit 1
         echo "# $branch" >> $GITHUB_STEP_SUMMARY
-        BRANCH=$dist npm run build:manifest -- --only-new 2>> $GITHUB_STEP_SUMMARY
+        BRANCH=$dist npm run build:manifest -- --only-new 2>> $GITHUB_STEP_SUMMARY || exit 1
         if [ ! -d ".dist" ] || [ -z "$(ls -A .dist)" ]; then
             echo "❌ ERROR: Manifest generation failed - .dist is missing or empty"
             exit 1
@@ -80,11 +77,7 @@ fi
 
 git reset
 rm -rf .js
-npm run clean:multisrc
-npm run build:multisrc
-echo "Compiling TypeScript..."
-npx tsc --project tsconfig.production.json
-npm run build:manifest
+npm run build:full || exit 1
 
 if [ ! -d ".dist" ] || [ -z "$(ls -A .dist)" ]; then
     echo "❌ ERROR: Manifest generation failed - .dist is missing or empty"

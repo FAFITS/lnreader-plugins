@@ -1,23 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { Copy, FileText, Code } from 'lucide-react';
+import { Copy, ExternalLink, FileText } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { normalizeChapterContent } from '@/lib/chapter-content';
+import { buildPreviewDocument } from '@/lib/preview-document';
 import { useAppStore } from '@/store';
-import { usePluginCustomAssets } from '@/hooks/usePluginCustomAssets';
+import type { Plugin } from '@/types/plugin';
 
 export default function ParseChapterSection() {
   const plugin = useAppStore(state => state.plugin);
   const parseChapterPath = useAppStore(state => state.parseChapterPath);
+  const parseChapterTitle = useAppStore(state => state.parseChapterTitle);
   const shouldAutoSubmitChapter = useAppStore(
     state => state.shouldAutoSubmitChapter,
   );
@@ -25,21 +27,32 @@ export default function ParseChapterSection() {
     state => state.clearParseChapterPath,
   );
   const [chapterPath, setChapterPath] = useState('');
-  const [chapterText, setChapterText] = useState('');
+  /** "Novel name - Chapter name", only known when navigated from Parse Novel. */
+  const [chapterTitle, setChapterTitle] = useState('');
+  const [chapterContent, setChapterContent] =
+    useState<Plugin.ChapterContent | null>(null);
+  const chapterText = chapterContent?.html || '';
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [showRawHtml, setShowRawHtml] = useState(false);
-
-  const { customCSSLoaded, customJSLoaded, customCSSError, customJSError } =
-    usePluginCustomAssets(plugin, chapterText);
 
   const fetchChapterByPath = async (path: string) => {
     if (plugin && path.trim()) {
       setLoading(true);
       setFetchError('');
+      setChapterContent(null);
       try {
         const result = await plugin.parseChapter(path);
-        setChapterText(result);
+        const content = normalizeChapterContent(
+          result,
+          plugin.isNekoriPlugin === true,
+        );
+        setChapterContent(content);
+        if (content.state === 'checkpoint')
+          setFetchError(
+            content.checkpointMessage ||
+              'Chapter requires interaction. Open Preview to continue.',
+          );
+        return content;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Failed to fetch chapter';
@@ -72,6 +85,7 @@ export default function ParseChapterSection() {
   useEffect(() => {
     if (parseChapterPath) {
       setChapterPath(parseChapterPath);
+      setChapterTitle(parseChapterTitle || '');
 
       if (shouldAutoSubmitChapter && plugin) {
         fetchChapterByPath(parseChapterPath);
@@ -81,10 +95,65 @@ export default function ParseChapterSection() {
     }
   }, [
     parseChapterPath,
+    parseChapterTitle,
     shouldAutoSubmitChapter,
     plugin,
     clearParseChapterPath,
   ]);
+
+  const openPreview = async (content = chapterContent, path = chapterPath) => {
+    if (!plugin || !content?.html) return;
+    if (!window.electronAPI) {
+      toast.error('Preview requires the Electron playground');
+      return;
+    }
+    // Only a jump from Parse Novel knows the novel and chapter names; a
+    // hand-typed path falls back to the plugin name and the path itself.
+    const title = chapterTitle || `${plugin.name} - ${path}`;
+    try {
+      await window.electronAPI.invoke('preview:open', {
+        pluginId: plugin.id,
+        chapterPath: path,
+        title,
+        html: buildPreviewDocument({
+          chapter: content,
+          chapterPath: path,
+          pluginId: plugin.id,
+          sourceBaseUrl: plugin.site,
+          title,
+          customCSS: plugin.customCSS,
+          customJS: plugin.customJS,
+          dark: document.documentElement.classList.contains('dark'),
+        }),
+        // Same role as react-native-webview's `source.baseUrl` in the app.
+        baseUrl: plugin.site,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to open preview';
+      toast.error(message);
+    }
+  };
+
+  useEffect(
+    () =>
+      window.electronAPI?.on?.('preview:refetch', async (value: unknown) => {
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          (value as { pluginId: string }).pluginId !== plugin?.id
+        )
+          return;
+        const path = (value as { chapterPath?: unknown }).chapterPath;
+        if (typeof path !== 'string') return;
+        const content = await fetchChapterByPath(path);
+        if (content) {
+          setChapterPath(path);
+          await openPreview(content, path);
+        }
+      }),
+    [plugin, chapterPath, chapterTitle],
+  );
 
   return (
     <div className="space-y-6">
@@ -123,7 +192,11 @@ export default function ParseChapterSection() {
           <Input
             placeholder="Enter chapter path..."
             value={chapterPath}
-            onChange={e => setChapterPath(e.target.value)}
+            onChange={e => {
+              setChapterPath(e.target.value);
+              // The stored title belongs to the chapter we navigated from.
+              setChapterTitle('');
+            }}
             onKeyPress={handleKeyPress}
             className="flex-1"
             disabled={!plugin}
@@ -192,16 +265,24 @@ export default function ParseChapterSection() {
                 </p>
               </div>
               <div className="flex gap-2 items-center">
-                <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-muted/50">
-                  <Code className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    Raw HTML
-                  </span>
-                  <Switch
-                    checked={showRawHtml}
-                    onCheckedChange={setShowRawHtml}
-                  />
-                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => void openPreview()}
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Mở Preview
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>
+                      Open the chapter in a separate Electron tab, based at{' '}
+                      {plugin?.site}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -244,23 +325,13 @@ export default function ParseChapterSection() {
             <div className="border border-border rounded-lg">
               <div className="bg-muted/50 rounded-t-lg px-4 py-2 border-b border-border">
                 <p className="text-xs text-muted-foreground font-medium">
-                  {showRawHtml ? 'RAW HTML' : 'CHAPTER CONTENT'} (
-                  {chapterText.length} characters)
+                  RAW HTML ({chapterText.length} characters)
                 </p>
               </div>
               <div className="bg-background rounded-b-lg p-6 max-h-[600px] overflow-y-auto">
-                {showRawHtml ? (
-                  <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-words">
-                    {chapterText}
-                  </pre>
-                ) : (
-                  <div
-                    className="prose prose-sm dark:prose-invert max-w-none text-foreground"
-                    dangerouslySetInnerHTML={{
-                      __html: chapterText,
-                    }}
-                  />
-                )}
+                <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-words">
+                  {chapterText}
+                </pre>
               </div>
             </div>
 
@@ -269,40 +340,11 @@ export default function ParseChapterSection() {
                 <p className="text-sm text-muted-foreground">
                   Content loaded successfully
                 </p>
-                {plugin?.customCSS && (
-                  <span
-                    className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${
-                      customCSSLoaded
-                        ? 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20'
-                        : customCSSError
-                          ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
-                          : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                    }`}
-                  >
-                    CSS:{' '}
-                    {customCSSLoaded
-                      ? '✓ Applied'
-                      : customCSSError
-                        ? '✗ Failed'
-                        : '⋯ Loading'}
-                  </span>
-                )}
-                {plugin?.customJS && (
-                  <span
-                    className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${
-                      customJSLoaded
-                        ? 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20'
-                        : customJSError
-                          ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
-                          : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20'
-                    }`}
-                  >
-                    JS:{' '}
-                    {customJSLoaded
-                      ? '✓ Applied'
-                      : customJSError
-                        ? '✗ Failed'
-                        : '⋯ Loading'}
+                {(plugin?.customCSS || plugin?.customJS) && (
+                  <span className="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                    Custom {plugin?.customCSS ? 'CSS' : ''}
+                    {plugin?.customCSS && plugin?.customJS ? ' + ' : ''}
+                    {plugin?.customJS ? 'JS' : ''} injected into preview
                   </span>
                 )}
               </div>
@@ -310,9 +352,10 @@ export default function ParseChapterSection() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setChapterText('');
+                  setChapterContent(null);
+                  setFetchError('');
                   setChapterPath('');
-                  setShowRawHtml(false);
+                  setChapterTitle('');
                 }}
               >
                 Clear

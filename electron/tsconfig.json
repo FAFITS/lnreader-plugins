@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../src/*"],
+      "@plugins/*": ["../plugins/*"],
+      "@libs/*": ["../src/libs/*"],
+      "@nekori/*": ["../src/nekori/*"]
+    }
+  },
+  "include": [
+    "main/**/*.ts",
+    "preload/**/*.ts",
+    "lib/**/*"
+  ]
+}

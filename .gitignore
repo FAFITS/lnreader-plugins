@@ -7,12 +7,24 @@ config.json
 # generated multisrc .ts files
 plugins/*/*\[*\]*.ts
 
+# generated plugin assets
+public/static/src/
+
 # ignore dist stuffs
 .js
 .dist
 .DS_Store
 dist
 total.svg
-src/plugins/index.ts
 .history
 broken-sites-report.json
+electron/dist-electron
+
+# LLM
+.agent/
+.agents/
+.claude/
+.cursor/
+
+# Automated plugin check reports
+plugin-check-report.json

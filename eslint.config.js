@@ -2,125 +2,135 @@
 
 import eslint from '@eslint/js';
 import prettierConfig from 'eslint-config-prettier';
-import tseslint from 'typescript-eslint';
+import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
+import customRules from './eslint/rules.js';
+
+// Dump of globals that are available in the Hermes runtime, which is used by React Native.
+// hermes@250829098.0.16 - React Native 0.87
 const globalsHermes = [
-  //hermes@0.72
+  // ECMAScript globals newer than ES2020,
+  // but available in the target Hermes runtime.
   'AggregateError',
-  'Array',
-  'ArrayBuffer',
-  'BigInt',
-  'BigInt64Array',
-  'BigUint64Array',
-  'Boolean',
-  'DataView',
-  'Date',
-  'DebuggerInternal',
-  'Error',
-  'EvalError',
-  'Float32Array',
-  'Float64Array',
-  'Function',
+  'WeakRef',
+
+  // Hermes
   'HermesInternal',
-  'Infinity',
-  'Int16Array',
-  'Int32Array',
-  'Int8Array',
-  'JSON',
-  'Map',
-  'Math',
-  'NaN',
-  'Number',
-  'Object',
-  'Promise',
-  'Proxy',
+  'DebuggerInternal',
   'QuitError',
-  'RangeError',
-  'ReferenceError',
-  'Reflect',
-  'RegExp',
-  'Set',
-  'String',
-  'Symbol',
-  'SyntaxError',
   'TimeoutError',
-  'TypeError',
-  'URIError',
-  'Uint16Array',
-  'Uint32Array',
-  'Uint8Array',
-  'Uint8ClampedArray',
-  'WeakMap',
-  'WeakSet',
-  '__defineGetter__',
-  '__defineSetter__',
-  '__lookupGetter__',
-  '__lookupSetter__',
-  '__proto__',
-  'clearTimeout',
-  'constructor',
-  'createHeapSnapshot',
-  'decodeURI',
-  'decodeURIComponent',
-  'encodeURI',
-  'encodeURIComponent',
-  'escape',
   'gc',
-  'globalThis',
-  'hasOwnProperty',
-  'isFinite',
-  'isNaN',
-  'isPrototypeOf',
-  'loadSegment',
-  'parseFloat',
-  'parseInt',
   'print',
-  'propertyIsEnumerable',
-  'setImmediate',
-  'setTimeout',
-  'toLocaleString',
-  'toString',
-  'undefined',
-  'unescape',
-  'valueOf',
-  //react-native
+
+  // Intl globals exposed directly by Hermes
+  'Collator',
+  'DateTimeFormat',
+  'NumberFormat',
+
+  // Web / React Native globals
   'AbortController',
+  'AbortSignal',
   'Blob',
-  'ErrorUtils',
+  'ByteLengthQueuingStrategy',
+  'CountQueuingStrategy',
+  'CustomEvent',
+  'DOMException',
   'Event',
   'EventTarget',
   'File',
   'FileReader',
   'FormData',
   'Headers',
-  'Intl',
+  'Request',
+  'Response',
+
+  // Encoding
+  'TextDecoder',
+  'TextDecoderStream',
+  'TextEncoder',
+  'TextEncoderStream',
+
+  // URL
   'URL',
   'URLSearchParams',
+
+  // Streams
+  'ReadableByteStreamController',
+  'ReadableStream',
+  'ReadableStreamBYOBReader',
+  'ReadableStreamBYOBRequest',
+  'ReadableStreamDefaultController',
+  'ReadableStreamDefaultReader',
+  'TransformStream',
+  'TransformStreamDefaultController',
+  'WritableStream',
+  'WritableStreamDefaultController',
+  'WritableStreamDefaultWriter',
+
+  // DOM-like APIs exposed by React Native
+  'CharacterData',
+  'Document',
+  'Element',
+  'HTMLCollection',
+  'HTMLElement',
+  'Node',
+  'NodeList',
+  'Text',
+  'DOMRect',
+  'DOMRectList',
+  'DOMRectReadOnly',
+
+  // Performance APIs
+  'Performance',
+  'PerformanceEntry',
+  'PerformanceEventTiming',
+  'PerformanceLongTaskTiming',
+  'PerformanceMark',
+  'PerformanceMeasure',
+  'PerformanceObserver',
+  'PerformanceObserverEntryList',
+  'PerformanceResourceTiming',
+  'performance',
+
+  // Networking
   'WebSocket',
   'XMLHttpRequest',
-  '__DEV__',
-  '__dirname',
-  '__fbBatchedBridgeConfig',
-  'alert',
+  'fetch',
+
+  // Encoding helpers
+  'atob',
+  'btoa',
+
+  // Scheduling
   'cancelAnimationFrame',
   'cancelIdleCallback',
   'clearImmediate',
   'clearInterval',
-  'console',
-  'document',
-  'exports',
-  'fetch',
-  'global',
-  'module',
-  'navigator',
-  'process',
+  'clearTimeout',
   'queueMicrotask',
   'requestAnimationFrame',
   'requestIdleCallback',
-  'require',
+  'setImmediate',
   'setInterval',
+  'setTimeout',
+
+  // Other runtime globals
+  'alert',
+  'console',
+  'ErrorUtils',
+  'navigator',
+  'process',
+  'self',
+  'structuredClone',
   'window',
+
+  // Plugin host
+  'exports',
+  'module',
+  'require',
+  '__DEV__',
 ].map(key => ({ [key]: 'readonly' }));
 
 export default tseslint.config(
@@ -130,15 +140,27 @@ export default tseslint.config(
   prettierConfig,
   {
     ignores: [
+      'public/static/novel-reader/**',
+      'public/static/reader-client.js',
       '.js',
+      'public/static',
       'docs',
+      'extra',
       'proxy_server.js',
       'plugins/*/*\\[*\\]*.ts', // Files with square brackets in their names
+      'electron',
+      'plugins/*/broken_*/**',
     ],
   },
   {
-    files: ['./plugins/*/*.ts', './plugins/multisrc/*/template.ts'],
+    files: ['plugins/*/*/*.ts', 'plugins/multisrc/*/template.ts'],
+    plugins: {
+      custom: customRules,
+      'simple-import-sort': simpleImportSort,
+    },
     rules: {
+      'simple-import-sort/imports': 'error',
+      'simple-import-sort/exports': 'error',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
@@ -157,17 +179,25 @@ export default tseslint.config(
           ],
         },
       ],
+      'custom/approved-imports': 'error',
+      'custom/deprecated-imports': 'warn',
+      'custom/no-lnreader-incompatible-imports': 'warn',
     },
     languageOptions: {
-      ecmaVersion: 5,
+      ecmaVersion: 2020,
       sourceType: 'module',
       globals: Object.assign({}, ...globalsHermes),
     },
   },
   {
     files: ['**/*.{ts,tsx,mts,cts,js}'],
-    ignores: ['./plugins/*/*.ts', './plugins/multisrc/*/template.ts'],
+    ignores: ['plugins/*/*/*.ts', 'plugins/multisrc/*/template.ts'],
+    plugins: {
+      'simple-import-sort': simpleImportSort,
+    },
     rules: {
+      'simple-import-sort/imports': 'error',
+      'simple-import-sort/exports': 'error',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-namespace': 'off',
@@ -193,5 +223,30 @@ export default tseslint.config(
         ...globals.browser,
       },
     },
+  },
+  {
+    files: ['plugins/**/*.{ts,js}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/lib/fetch*'],
+              message: 'Use @libs/fetch instead of @/lib/fetch',
+            },
+            {
+              group: ['@libs/webview*'],
+              message: '@libs/webview is reserved for the host, not plugins.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['scripts/*.cjs'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-var-requires': 'off' },
   },
 );

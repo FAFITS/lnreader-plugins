@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { Plugin } from '@/types/plugin';
 
-interface UsePluginCustomAssetsReturn {
+type UsePluginCustomAssetsReturn = {
   customCSSLoaded: boolean;
   customJSLoaded: boolean;
   customCSSError: boolean;
   customJSError: boolean;
-}
+};
 
 /**
  * Custom hook to load and manage plugin custom CSS and JS assets
@@ -15,7 +16,7 @@ interface UsePluginCustomAssetsReturn {
  * @returns Object containing loading states for CSS and JS
  */
 export function usePluginCustomAssets(
-  plugin: Plugin.PluginBase | undefined,
+  plugin: Plugin.PluginSource | undefined,
   chapterText: string,
 ): UsePluginCustomAssetsReturn {
   const [customCSSLoaded, setCustomCSSLoaded] = useState(false);

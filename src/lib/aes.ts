@@ -1,1 +1,8 @@
-export { gcm } from '@noble/ciphers/aes.js';
+export {
+  // Nekori-compatible AES implementations
+  cbc,
+  cfb,
+  ctr,
+  ecb,
+  gcm, // LNReader-compatible AES-GCM implementation
+} from './nobleWrapper';

@@ -1,24 +1,34 @@
-import React, { useMemo, useState } from 'react';
-
 import { BookOpen, Search, Settings, Zap } from 'lucide-react';
-import PluginHeader from '../components/plugin-header';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-
-import plugins from '@plugins/index';
-import { useAppStore } from '@/store';
+import ParseChapterSection from '@/components/parse-chapter';
+import ParseNovelSection from '@/components/parse-novel';
 import PopularNovelsSection from '@/components/popular-novels';
 import SearchNovelsSection from '@/components/search-novels';
-import ParseNovelSection from '@/components/parse-novel';
 import SettingsSection from '@/components/settings';
-import ParseChapterSection from '@/components/parse-chapter';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  getPluginDisplayName,
+  getPluginNameColor,
+} from '@/lib/plugin-metadata';
+import plugins from '@/provider/plugin-registry';
+import { useAppStore } from '@/store';
+
+import PluginHeader from '../components/plugin-header';
 
 function Home() {
   const { plugin, selectPlugin } = useAppStore(state => state);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [activeTab, setActiveTab] = useState('popular');
+
+  useEffect(() => {
+    const updatedPlugin = plugins.find(item => item.id === plugin?.id);
+    if (updatedPlugin && updatedPlugin !== plugin) {
+      selectPlugin(updatedPlugin, false);
+    }
+  }, [plugin, selectPlugin, plugins]);
 
   const filteredPlugins = useMemo(
     () =>
@@ -64,7 +74,9 @@ function Home() {
                       : 'text-foreground hover:bg-muted'
                   }`}
                 >
-                  {filteredPlugin.name}
+                  <span style={{ color: getPluginNameColor(filteredPlugin) }}>
+                    {getPluginDisplayName(filteredPlugin)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -79,7 +91,15 @@ function Home() {
                 Plugin Playground
               </h1>
               <p className="text-muted-foreground">
-                Explore and test {plugin?.name || 'plugin'} features
+                Explore and test{' '}
+                {plugin ? (
+                  <span style={{ color: getPluginNameColor(plugin) }}>
+                    {getPluginDisplayName(plugin)}
+                  </span>
+                ) : (
+                  'plugin'
+                )}{' '}
+                features
               </p>
             </div>
 

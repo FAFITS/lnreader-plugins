@@ -1,12 +1,12 @@
+import plugins from '@/provider/plugin-registry';
 import { Plugin } from '@/types/plugin';
+
 import { StoreCreator } from '.';
-import { getPlugin } from '@/provider/plugins';
-import plugins from '@plugins/index';
 
 export type PluginStore = {
   pluginItem?: Plugin.PluginItem;
-  plugin?: Plugin.PluginBase;
-  selectPlugin(plugin: Plugin.PluginItem, updateURL?: boolean): void;
+  plugin?: Plugin.PluginSource;
+  selectPlugin(plugin: Plugin.PluginSource, updateURL?: boolean): void;
 };
 
 const loadPluginFromURL = () => {
@@ -17,7 +17,7 @@ const loadPluginFromURL = () => {
     if (pluginItem) {
       return {
         pluginItem,
-        plugin: getPlugin(pluginItem.id),
+        plugin: pluginItem,
       };
     }
   }
@@ -35,7 +35,7 @@ export const PluginStore: StoreCreator<PluginStore> = set => ({
     set(state => ({
       ...state,
       pluginItem,
-      plugin: getPlugin(pluginItem.id),
+      plugin: pluginItem,
     }));
 
     if (updateURL) {

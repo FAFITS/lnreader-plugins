@@ -1,8 +1,6 @@
-/* global Buffer, RequestInit */
-
 import { parse as parseProto } from 'protobufjs';
 
-type FetchInit = {
+export type FetchInit = {
   headers?: Record<string, string | undefined> | Headers;
   method?: string;
   body?: FormData | string;
@@ -14,94 +12,48 @@ type FetchInit = {
     | Headers;
 };
 
-const makeInit = async (init?: FetchInit) => {
-  const defaultHeaders: Record<string, string> = {
-    'Connection': 'keep-alive',
-    'Accept': '*/*',
-    'Accept-Language': '*',
-    'Sec-Fetch-Mode': 'cors',
-    'Accept-Encoding': 'gzip, deflate',
-  };
-  if (init?.headers) {
-    if (init.headers instanceof Headers) {
-      for (const [name, value] of Object.entries(defaultHeaders)) {
-        if (!init.headers.get(name)) init.headers.set(name, value);
-      }
-    } else {
-      init.headers = {
-        ...defaultHeaders,
-        ...init.headers,
-      };
-    }
-  } else {
-    init = {
-      ...init,
-      headers: defaultHeaders,
-    };
-  }
-  return init;
-};
+export async function fetchApi(
+  url: string,
+  init?: FetchInit,
+): Promise<Response> {
+  const mergedInit = { ...init };
 
-/**
- * Fetch with (Android) User Agent
- * @param url
- * @param init
- * @returns response as normal fetch
- */
-export async function fetchApi(url: string, init?: FetchInit) {
-  init = await makeInit(init);
-  console.log(url, init);
-  return await fetch(url, init as RequestInit);
+  // Flatten Headers instance to plain object for IPC serialization
+  if (mergedInit.headers instanceof Headers) {
+    mergedInit.headers = Object.fromEntries(mergedInit.headers.entries());
+  }
+
+  const result = await window.electronAPI!.invoke(
+    'fetch:request',
+    url,
+    mergedInit,
+  );
+  const bodyBytes = Uint8Array.from(atob(result.body), c => c.charCodeAt(0));
+  const response = new Response(bodyBytes, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: new Headers(result.headers),
+  });
+  Object.defineProperty(response, 'url', { value: result.url });
+  return response;
 }
 
-/**
- *
- * @param url
- * @param init
- * @returns base64 string of file
- * @example fetchFile('https://avatars.githubusercontent.com/u/81222734?s=48&v=4');
- */
-export const fetchFile = async function (url: string, init?: FetchInit) {
-  init = await makeInit(init);
-  console.log(url, init);
-  try {
-    const res = await fetch(url, init as RequestInit);
-    if (!res.ok) return '';
-    const arrayBuffer = await res.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString('base64');
-  } catch (e) {
-    return '';
-  }
-};
-
-/**
- *
- * @param url
- * @param init
- * @param encoding default: `utf-8`. link: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/encoding
- * @returns plain text
- * @example fetchText('https://github.com/LNReader/lnreader', {}, 'gbk');
- */
-export const fetchText = async function (
+export async function fetchText(
   url: string,
   init?: FetchInit,
   encoding?: string,
 ): Promise<string> {
-  init = await makeInit(init);
-  console.log(url, init);
   try {
-    const res = await fetch(url, init as RequestInit);
+    const res = await fetchApi(url, init);
     if (!res.ok) return '';
-    const arrayBuffer = await res.arrayBuffer();
-    const decoder = new TextDecoder(encoding);
-    return decoder.decode(arrayBuffer);
-  } catch (e) {
+    const buf = await res.arrayBuffer();
+    return new TextDecoder(encoding).decode(buf);
+  } catch {
     return '';
   }
-};
+}
 
 type ProtoRequestInit = {
-  // merged .proto file
   proto: string;
   requestType: string;
   requestData?: any;
@@ -117,11 +69,12 @@ export const fetchProto = async function <ReturnType>(
 ) {
   const protoRoot = parseProto(protoInit.proto).root;
   const RequestMessge = protoRoot.lookupType(protoInit.requestType);
-  if (RequestMessge.verify(protoInit.requestData)) {
+  if (RequestMessge.verify(protoInit.requestData || {})) {
     throw new Error('Invalid Proto');
   }
-  // encode request data
-  const encodedrequest = RequestMessge.encode(protoInit.requestData).finish();
+  const encodedrequest = RequestMessge.encode(
+    protoInit.requestData || {},
+  ).finish();
   const requestLength = BigInt(encodedrequest.length);
   const headers = new Uint8Array(
     Array(5)
@@ -131,18 +84,21 @@ export const fetchProto = async function <ReturnType>(
         return Number((requestLength >> BigInt(8 * (5 - idx - 1))) & BYTE_MARK);
       }),
   );
-  init = await makeInit(init);
+
+  const mergedInit = { ...init };
+  if (!mergedInit.headers) mergedInit.headers = {};
+
   const bodyArray = new Uint8Array(headers.length + encodedrequest.length);
   bodyArray.set(headers, 0);
   bodyArray.set(encodedrequest, headers.length);
-  return fetch(url, {
+
+  return fetchApi(url, {
     method: 'POST',
-    ...init,
+    ...mergedInit,
     body: bodyArray,
-  } as RequestInit)
+  } as any)
     .then(r => r.arrayBuffer())
     .then(arr => {
-      // decode response data
       const payload = new Uint8Array(arr);
       const length = Number(
         BigInt(payload[1] << 24) |

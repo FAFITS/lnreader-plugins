@@ -13,10 +13,8 @@ const categories = [
 
 function fandomSlug(name) {
   return name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' ')
-    .replace(/['’]/g, '')
+    .replace(/['’]/g, '-')
     .replace(/[\\/]/g, ' ')
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '');

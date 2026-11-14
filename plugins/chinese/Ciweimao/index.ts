@@ -528,6 +528,14 @@ class Ciweimao extends NekoriBasePlugin {
     }
 
     $content.find('script, style, .num-link, span').remove();
+    $content.find('p.chapter').each((_, element) => {
+      const $paragraph = $(element);
+      const html = $paragraph.html();
+      if (html) {
+        $paragraph.html(html.replace(/^[\s\u3000]+/, ''));
+      }
+    });
+
     return {
       state: 'ready',
       type: 'novel',

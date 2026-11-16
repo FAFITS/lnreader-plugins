@@ -11,17 +11,17 @@ import { Plugin } from '@/types/plugin';
 const CATEGORIES = [
   {
     label: '全部分类（最新更新） (All Categories - Latest Updates)',
-    value: '0',
+    value: '0-0',
   },
-  { label: '玄幻奇幻 (Fantasy)', value: 'yijiehuanxiang' },
-  { label: '都市青春 (Urban & Youth)', value: 'qingchunrichang' },
-  { label: '灵异未知 (Supernatural & Mystery)', value: 'shenmiweizhi' },
-  { label: '历史军事 (History & Military)', value: 'zhanzhenglishi' },
-  { label: '科幻无限 (Science Fiction)', value: 'weilaihuanxiang' },
-  { label: '游戏竞技 (Games & Esports)', value: 'youxishijie' },
-  { label: '仙侠武侠 (Xianxia & Wuxia)', value: 'rexuejingji' },
-  { label: '免费同人 (Free Fan Fiction)', value: 'tongrenfenlei' },
-  { label: '女频 (Female-Oriented)', value: 'nvpinfenlei' },
+  { label: '玄幻奇幻 (Fantasy)', value: '1-8' },
+  { label: '都市青春 (Urban & Youth)', value: '1-27' },
+  { label: '灵异未知 (Supernatural & Mystery)', value: '1-1' },
+  { label: '历史军事 (History & Military)', value: '1-30' },
+  { label: '科幻无限 (Science Fiction)', value: '1-6' },
+  { label: '游戏竞技 (Games & Esports)', value: '1-3' },
+  { label: '仙侠武侠 (Xianxia & Wuxia)', value: '1-5' },
+  { label: '免费同人 (Free Fan Fiction)', value: '1-24' },
+  { label: '女频 (Female-Oriented)', value: '2-11' },
 ];
 
 const IP_TAGS = [
@@ -149,33 +149,33 @@ const ATTRIBUTE_TAGS = [
 
 const SORT_OPTIONS = [
   { label: '默认排序 (Default)', value: '' },
-  { label: '人气排序 (Popularity)', value: 'week_click' },
   { label: '更新时间排序 (Recently Updated)', value: 'uptime' },
-  { label: '总推荐排序 (Recommendations)', value: 'total_recommend' },
-  { label: '总收藏排序 (Favorites)', value: 'total_favor' },
-  { label: '总月票排序 (Monthly Votes)', value: 'total_yp' },
   { label: '周点击排序 (Weekly Views)', value: 'week_no_vip_click' },
   { label: '月点击排序 (Monthly Views)', value: 'month_no_vip_click' },
   { label: '总点击排序 (Total Views)', value: 'total_click' },
-  { label: '总吐槽排序 (Comments)', value: 'total_tsukkomi' },
-  { label: '均订排序 (Average Subscriptions)', value: 'average_buy' },
-  { label: '字数排序 (Word Count)', value: 'total_word_count' },
+  { label: '周推荐排序 (Weekly Recommendations)', value: 'week_recommend' },
+  { label: '月推荐排序 (Monthly Recommendations)', value: 'month_recommend' },
+  { label: '总推荐排序 (Recommendations)', value: 'total_recommend' },
+  { label: '总收藏排序 (Favorites)', value: 'total_favor' },
 ];
 
 class Ciweimao extends NekoriBasePlugin {
   id = 'ciweimao.com';
   name = 'Ciweimao';
   icon = 'icon.svg';
-  site = 'https://wap.ciweimao.com';
-  version = '1.0.1';
+  site = 'https://www.ciweimao.com';
+  version = '1.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
+  imageRequestInit = {
+    headers: { Referer: 'https://www.ciweimao.com/' },
+  };
 
   filters = {
     category: {
       type: FilterTypes.Picker,
       label: 'Category',
-      value: '0',
+      value: '0-0',
       options: CATEGORIES,
     },
     ipTags: {
@@ -196,37 +196,33 @@ class Ciweimao extends NekoriBasePlugin {
       value: '',
       options: SORT_OPTIONS,
     },
+    keyword: {
+      type: FilterTypes.TextInput,
+      label: 'Search by Title',
+      value: '',
+    },
     wordCount: {
       type: FilterTypes.Picker,
       label: 'Word Count',
       value: '0',
       options: [
         { label: '不限 (Any)', value: '0' },
-        { label: '30万以下 (Under 300K)', value: '1' },
-        { label: '30万-50万 (300K-500K)', value: '2' },
-        { label: '50万-100万 (500K-1M)', value: '3' },
-        { label: '100万-200万 (1M-2M)', value: '4' },
-        { label: '200万以上 (Over 2M)', value: '5' },
+        { label: '15万以下 (Under 150K)', value: '1' },
+        { label: '15万-30万 (150K-300K)', value: '2' },
+        { label: '30万-50万 (300K-500K)', value: '3' },
+        { label: '50万-100万 (500K-1M)', value: '4' },
+        { label: '100万-200万 (1M-2M)', value: '5' },
+        { label: '200万以上 (Over 2M)', value: '6' },
       ],
     },
-    progress: {
+    status: {
       type: FilterTypes.Picker,
-      label: 'Progress',
-      value: '0',
-      options: [
-        { label: '全部 (All)', value: '0' },
-        { label: '完本 (Completed)', value: '1' },
-        { label: '连载 (Ongoing)', value: '2' },
-      ],
-    },
-    access: {
-      type: FilterTypes.Picker,
-      label: 'Access',
+      label: 'Status / Access',
       value: '0',
       options: [
         { label: '不限 (Any)', value: '0' },
-        { label: '只看免费 (Free Only)', value: '1' },
-        { label: '只看VIP (VIP Only)', value: '2' },
+        { label: '完本 (Completed)', value: '1' },
+        { label: '免费作品 (Free Only)', value: '2' },
       ],
     },
     updateTime: {
@@ -237,27 +233,16 @@ class Ciweimao extends NekoriBasePlugin {
         { label: '不限 (Any)', value: '0' },
         { label: '三日内 (Within 3 Days)', value: '1' },
         { label: '七日内 (Within 7 Days)', value: '2' },
-        { label: '半月内 (Within 15 Days)', value: '3' },
+        { label: '本月内 (Within This Month)', value: '3' },
         { label: '一月内 (Within 1 Month)', value: '4' },
       ],
     },
-    novelId: {
-      type: FilterTypes.TextInput,
-      label: 'Novel ID (enter an ID to open that novel)',
-      value: '',
-    },
   } satisfies Filters;
 
-  private readonly headers = {
-    'User-Agent':
-      'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
-    Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-  };
-
-  private readonly categoryTypeCache = new Map<string, string>();
+  private tagSlugCache?: Map<string, string>;
 
   private async fetchDocument(url: string) {
-    const response = await fetchApi(url, { headers: this.headers });
+    const response = await fetchApi(url);
     if (!response.ok) {
       throw new Error(`Ciweimao request failed: HTTP ${response.status}`);
     }
@@ -279,91 +264,79 @@ class Ciweimao extends NekoriBasePlugin {
     const novels: Plugin.NovelItem[] = [];
     const seen = new Set<string>();
 
-    $('.book-item, .booklist > li, .recommend-list > li, .book-list > li').each(
-      (_, element) => {
-        const $item = $(element);
-        const $link = $item.find('a[href*="/book/"]').first();
-        const href = $link.attr('href');
-        if (!href) return;
+    $(
+      '.book-list-table tr, li[data-book-id], .book-item, .booklist > li, .recommend-list > li, .book-list > li',
+    ).each((_, element) => {
+      const $item = $(element);
+      const $link = $item.find('a[href*="/book/"]').first();
+      const href = $link.attr('href');
+      if (!href) return;
 
-        const path = new URL(href, this.site).pathname;
-        if (!/^\/book\/\d+\/?$/.test(path) || seen.has(path)) return;
+      const path = new URL(href, this.site).pathname;
+      if (!/^\/book\/\d+\/?$/.test(path) || seen.has(path)) return;
 
-        const $image = $item.find('img').first();
-        const name =
-          $item.find('.info h3').contents().first().text().trim() ||
-          $item.find('h3').first().text().trim() ||
-          $image.attr('alt')?.trim() ||
-          $link.attr('title')?.trim();
-        if (!name) return;
+      const $image = $item.find('img').first();
+      const name =
+        $item.find('.name a').first().text().trim() ||
+        $item.find('.info h3').contents().first().text().trim() ||
+        $item.find('h3').first().text().trim() ||
+        $image.attr('alt')?.trim() ||
+        $link.attr('title')?.trim() ||
+        $link.text().trim();
+      if (!name) return;
 
-        const rawCover =
-          $image.attr('data-original') ||
-          $image.attr('data-src') ||
-          $image.attr('src');
-        const cover =
-          rawCover && !rawCover.includes('/resources/images/cover.jpg')
-            ? new URL(rawCover, this.site).href
-            : defaultCover;
+      const rawCover =
+        $image.attr('data-original') ||
+        $image.attr('data-src') ||
+        $image.attr('src');
+      const cover =
+        rawCover && !rawCover.includes('/resources/images/cover.jpg')
+          ? new URL(rawCover, this.site).href
+          : defaultCover;
 
-        seen.add(path);
-        novels.push({ name, path, cover });
-      },
-    );
+      seen.add(path);
+      novels.push({ name, path, cover });
+    });
 
     return novels;
   }
 
-  private async getCategoryType(category: string): Promise<string> {
-    if (/^\d+$/.test(category)) return category;
+  private async getTagSlugMap(): Promise<Map<string, string>> {
+    if (this.tagSlugCache) return this.tagSlugCache;
 
-    const cached = this.categoryTypeCache.get(category);
-    if (cached) return cached;
-
-    const $ = await this.fetchDocument(
-      `https://mip.ciweimao.com/book_list/${encodeURIComponent(category)}/`,
-    );
-    const categoryType = $('#category_type').text().trim();
-    if (!/^\d+$/.test(categoryType)) {
-      throw new Error(
-        `Ciweimao category type was not found for category "${category}".`,
-      );
+    const $ = await this.fetchDocument(`${this.site}/book_list/`);
+    const tagSlugs = new Map<string, string>();
+    $('#J_DialogLabel .J_LabelBox li a[data-val]').each((_, element) => {
+      const $link = $(element);
+      const label = $link.text().trim();
+      const slug = $link.attr('data-val');
+      if (label && slug) tagSlugs.set(label, slug);
+    });
+    if (tagSlugs.size === 0) {
+      throw new Error('Ciweimao tag filters were not found.');
     }
 
-    this.categoryTypeCache.set(category, categoryType);
-    return categoryType;
+    this.tagSlugCache = tagSlugs;
+    return tagSlugs;
   }
 
   private async fetchListingPage(
-    categoryType: string,
     pageNo: number,
     filters?: Plugin.PopularNovelsOptions<typeof this.filters>['filters'],
+    searchTerm = '',
   ): Promise<Plugin.NovelItem[]> {
-    const url = new URL('/index/book_list_data', this.site);
-    url.searchParams.set('category_type', categoryType);
-    url.searchParams.set('page', String(pageNo));
-    if (filters?.sort?.value) {
-      url.searchParams.set('order', filters.sort.value);
-    }
-    if (filters?.wordCount?.value && filters.wordCount.value !== '0') {
-      url.searchParams.set('filter_word', filters.wordCount.value);
-    }
-    if (filters?.progress?.value && filters.progress.value !== '0') {
-      url.searchParams.set('filter_up_status', filters.progress.value);
-    }
-    if (filters?.access?.value && filters.access.value !== '0') {
-      url.searchParams.set('filter_is_paid', filters.access.value);
-    }
-    if (filters?.updateTime?.value && filters.updateTime.value !== '0') {
-      url.searchParams.set('filter_uptime', filters.updateTime.value);
-    }
     const tagIds = [
       ...(filters?.ipTags?.value || []),
       ...(filters?.attributeTags?.value || []),
     ];
+    const [categoryType = '0', categoryId = '0'] = (
+      filters?.category?.value || '0-0'
+    ).split('-');
+
+    const facets: string[] = [];
     if (tagIds.length > 0) {
       const availableTags = [...IP_TAGS, ...ATTRIBUTE_TAGS];
-      const tagNames: Record<string, string> = {};
+      const tagSlugs = await this.getTagSlugMap();
       for (const tagId of tagIds) {
         const tag = availableTags.find(option => option.value === tagId);
         if (!tag) {
@@ -371,33 +344,30 @@ class Ciweimao extends NekoriBasePlugin {
         }
 
         const englishLabelStart = tag.label.indexOf(' (');
-        tagNames[tagId] =
+        const label =
           englishLabelStart >= 0
             ? tag.label.slice(0, englishLabelStart)
             : tag.label;
+        const slug = tagSlugs.get(label);
+        if (!slug) {
+          throw new Error(`Ciweimao tag "${label}" was not found on the site.`);
+        }
+        facets.push(slug);
       }
-      url.searchParams.set('tag_jason', JSON.stringify(tagNames));
     }
 
-    const response = await fetchApi(url.href, { headers: this.headers });
-    if (!response.ok) {
-      throw new Error(
-        `Ciweimao listing request failed: HTTP ${response.status}`,
-      );
-    }
-
-    const payload: unknown = await response.json();
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Ciweimao returned an invalid listing response.');
-    }
-
-    const result = payload as { code?: unknown; html?: unknown };
-    if (result.code === 360001) return [];
-    if (typeof result.html !== 'string') {
-      throw new Error('Ciweimao listing response did not contain HTML.');
-    }
-
-    return this.parseNovels(loadCheerio(result.html));
+    const filterPath = [
+      categoryType,
+      categoryId,
+      filters?.sort?.value || '0',
+      filters?.updateTime?.value || '0',
+      filters?.wordCount?.value || '0',
+      filters?.status?.value || '0',
+    ].join('-');
+    const facetPath = facets.join('-') || '全部';
+    const route = `/get-search-book-list/${filterPath}/${facetPath}/${encodeURIComponent(searchTerm)}/${pageNo}`;
+    const $ = await this.fetchDocument(new URL(route, this.site).href);
+    return this.parseNovels($);
   }
 
   async popularNovels(
@@ -408,22 +378,12 @@ class Ciweimao extends NekoriBasePlugin {
       throw new Error('Page number must be a positive integer.');
     }
 
-    const category = options?.filters?.category?.value || '0';
-    const novelIdInput = options?.filters?.novelId?.value.trim();
-    if (novelIdInput) {
-      const idMatch = novelIdInput.match(
-        /^(?:https?:\/\/(?:wap|www)\.ciweimao\.com)?\/?(?:book\/)?(\d+)\/?$/i,
-      );
-      if (!idMatch) {
-        throw new Error('Enter a Ciweimao novel ID or a Ciweimao book URL.');
-      }
-
-      const novel = await this.parseNovel(`/book/${idMatch[1]}`);
-      return [{ name: novel.name, path: novel.path, cover: novel.cover }];
-    }
-
-    const categoryType = await this.getCategoryType(category);
-    return this.fetchListingPage(categoryType, pageNo, options?.filters);
+    const filters = options?.filters;
+    return this.fetchListingPage(
+      pageNo,
+      filters,
+      filters?.keyword?.value.trim(),
+    );
   }
 
   async searchNovels(
@@ -436,13 +396,7 @@ class Ciweimao extends NekoriBasePlugin {
       throw new Error('Page number must be a positive integer.');
     }
 
-    // The WAP search endpoint redirects to a CAPTCHA; only search public homepage entries.
-    const $ = await this.fetchDocument(this.site);
-    const matches = this.parseNovels($).filter(novel =>
-      novel.name.toLocaleLowerCase().includes(term.toLocaleLowerCase()),
-    );
-    const pageSize = 20;
-    return matches.slice((pageNo - 1) * pageSize, pageNo * pageSize);
+    return this.fetchListingPage(pageNo, undefined, term);
   }
 
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
@@ -453,8 +407,9 @@ class Ciweimao extends NekoriBasePlugin {
     }
 
     const $ = await this.fetchDocument(`${this.site}/book/${bookId}`);
+    const $title = $('.book-info h1.book, .book-info h1.title').first();
     const name =
-      $('.book-info h1.book').text().trim() ||
+      $title.contents().first().text().trim() ||
       $('meta[name="name"]').attr('content')?.trim() ||
       $('title').text().split('最新章节')[0].trim();
     if (!name) {
@@ -462,25 +417,38 @@ class Ciweimao extends NekoriBasePlugin {
     }
 
     const info = $('.book-info .info');
-    const authorLine = info.find('.author').text().trim();
-    const author = authorLine.split(/\s+著/)[0]?.trim() || undefined;
-    const summary = $('.book-desc .desc-cnt').text().trim() || undefined;
+    const authorLine =
+      info.find('.author').text().trim() ||
+      $title.find('span').text().trim();
+    const author =
+      $title.find('span a').first().text().trim() ||
+      authorLine.split(/\s+著/)[0]?.trim() ||
+      undefined;
+    const summary =
+      $('.book-desc .desc-cnt, .book-intro-cnt .book-desc').text().trim() ||
+      undefined;
     const coverUrl =
       $('.book-info .cover img').attr('data-original') ||
       $('.book-info .cover img').attr('data-src') ||
+      $('img')
+        .filter((_, element) => $(element).attr('alt')?.trim() === name)
+        .first()
+        .attr('data-original') ||
       $('meta[property="og:image"]').attr('content');
     const cover =
       coverUrl && !coverUrl.includes('/resources/images/cover.jpg')
         ? new URL(coverUrl, this.site).href
         : defaultCover;
-    const intro = info.find('.intro').text();
+    const intro = info.find('.intro').text() || $('.book-info').text();
     const status = intro.includes('已完结')
       ? NovelStatus.Completed
       : NovelStatus.Ongoing;
 
     const chapters: Plugin.ChapterItem[] = [];
     const chapterPaths = new Set<string>();
-    $('.catalogue-list a[href*="/chapter/"]').each((index, element) => {
+    $(
+      '.catalogue-list a[href*="/chapter/"], .book-chapter-box a[href*="/chapter/"]',
+    ).each((index, element) => {
       const $link = $(element);
       const href = $link.attr('href');
       const chapterId = href?.match(/\/chapter\/(\d+)/)?.[1];
@@ -517,10 +485,15 @@ class Ciweimao extends NekoriBasePlugin {
       throw new Error(`Invalid Ciweimao chapter path: ${chapterPath}`);
     }
 
-    const $ = await this.fetchDocument(
-      `https://mip.ciweimao.com/chapter/${chapterId}`,
-    );
-    const $content = $('#J_BookRead');
+    let $ = await this.fetchDocument(`${this.site}/chapter/${chapterId}`);
+    let $content = $('#J_BookRead');
+    if (!$content.text().trim()) {
+      $ = await this.fetchDocument(
+        `https://mip.ciweimao.com/chapter/${chapterId}`,
+      );
+      $content = $('#J_BookRead');
+    }
+
     if ($content.length === 0 || !$content.text().trim()) {
       throw new Error(
         'Ciweimao chapter content was not found. It may be unavailable or require access on the site.',

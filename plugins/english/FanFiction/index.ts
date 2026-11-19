@@ -34,9 +34,7 @@ const GENRE_OPTIONS = [
   { label: 'Western', value: '17' },
 ] as const;
 
-const KNOWN_GENRES = new Set<string>(
-  GENRE_OPTIONS.map(({ label }) => label),
-);
+const KNOWN_GENRES = new Set<string>(GENRE_OPTIONS.map(({ label }) => label));
 
 function uniqueFandomOptions(options: { label: string; value: string }[]) {
   const seen = new Set<string>();
@@ -375,19 +373,13 @@ class FanFictionNet extends NekoriBasePlugin {
       type: FilterTypes.Picker,
       label: 'Genre (A)',
       value: '0',
-      options: [
-        { label: 'Genre (A): All', value: '0' },
-        ...GENRE_OPTIONS,
-      ],
+      options: [{ label: 'Genre (A): All', value: '0' }, ...GENRE_OPTIONS],
     },
     genreB: {
       type: FilterTypes.Picker,
       label: 'Genre (B)',
       value: '0',
-      options: [
-        { label: 'Genre (B): All', value: '0' },
-        ...GENRE_OPTIONS,
-      ],
+      options: [{ label: 'Genre (B): All', value: '0' }, ...GENRE_OPTIONS],
     },
     length: {
       type: FilterTypes.Picker,
@@ -419,11 +411,17 @@ class FanFictionNet extends NekoriBasePlugin {
   } satisfies Filters;
 
   private extractCoverUrl(rawUrl?: string): string {
-    if (!rawUrl || rawUrl.includes('d_60_90.jpg') || rawUrl.includes('d_75_100.jpg')) {
+    if (
+      !rawUrl ||
+      rawUrl.includes('d_60_90.jpg') ||
+      rawUrl.includes('d_75_100.jpg')
+    ) {
       return defaultCover;
     }
     // Upgrade thumbnail sizes (e.g. /75/, /60/, /90/) to high-resolution /180/
-    let upgraded = rawUrl.replace(/\/75\/?$/, '/180/').replace(/\/60\/?$/, '/180/');
+    let upgraded = rawUrl
+      .replace(/\/75\/?$/, '/180/')
+      .replace(/\/60\/?$/, '/180/');
     if (upgraded.startsWith('//')) {
       upgraded = `https:${upgraded}`;
     } else if (upgraded.startsWith('/')) {
@@ -448,9 +446,7 @@ class FanFictionNet extends NekoriBasePlugin {
 
       const $img = $el.find('img.cimage, img.lazy, img.cavatar, img').first();
       const rawCover =
-        $img.attr('data-original') ||
-        $img.attr('data-src') ||
-        $img.attr('src');
+        $img.attr('data-original') || $img.attr('data-src') || $img.attr('src');
       const cover = this.extractCoverUrl(rawCover);
 
       novels.push({
@@ -468,7 +464,10 @@ class FanFictionNet extends NekoriBasePlugin {
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
     const filters = options?.filters;
-    let fandomPath = filters?.customFandom?.value?.trim() || filters?.fandom?.value || '/book/Harry-Potter/';
+    let fandomPath =
+      filters?.customFandom?.value?.trim() ||
+      filters?.fandom?.value ||
+      '/book/Harry-Potter/';
     if (!fandomPath.startsWith('/')) {
       fandomPath = `/${fandomPath}`;
     }
@@ -578,14 +577,13 @@ class FanFictionNet extends NekoriBasePlugin {
       '#profile_top img.cimage, #profile_top img.lazy, #profile_top img.cavatar, #profile_top img',
     ).first();
     const rawCover =
-      $img.attr('data-original') ||
-      $img.attr('data-src') ||
-      $img.attr('src');
+      $img.attr('data-original') || $img.attr('data-src') || $img.attr('src');
     const cover = this.extractCoverUrl(rawCover);
 
     const infoText =
-      $('#profile_top span.xgroups, #profile_top div.xcontrast_2, #profile_top span.xcontrast_2')
-        .text() || $('#profile_top').text();
+      $(
+        '#profile_top span.xgroups, #profile_top div.xcontrast_2, #profile_top span.xcontrast_2',
+      ).text() || $('#profile_top').text();
 
     const status = infoText.includes('Status: Complete')
       ? NovelStatus.Completed
@@ -601,7 +599,8 @@ class FanFictionNet extends NekoriBasePlugin {
         }
       }
     }
-    const genres = matchedGenres.length > 0 ? matchedGenres.join(', ') : undefined;
+    const genres =
+      matchedGenres.length > 0 ? matchedGenres.join(', ') : undefined;
 
     const idMatch = normalizedPath.match(/\/s\/(\d+)/);
     const storyId = idMatch ? idMatch[1] : '';

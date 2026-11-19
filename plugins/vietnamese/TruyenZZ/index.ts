@@ -1,6 +1,8 @@
 import { fetchApi } from '@libs/fetch';
 import { Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
+import { storage } from '@libs/storage';
+import type { Plugin as PluginTypes } from '@/types/plugin';
 import { NekoriBasePlugin } from '@nekori/plugin';
 import { ContentType, ContentWarning } from '@nekori/pluginMetadata';
 import { load as loadCheerio } from 'cheerio';
@@ -12,9 +14,38 @@ class TruyenZZPlugin extends NekoriBasePlugin {
   name = 'Truyện ZZ';
   icon = 'icon.svg';
   site = 'https://truyenzz.net';
-  version = '1.0.1';
+  version = '1.0.2';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
+
+  pluginSettings: PluginTypes.PluginSettings = {
+    truyenzzRequestDelay: {
+      value: '500',
+      label: 'Khoảng cách giữa các request (ms)',
+      type: 'Select',
+      options: [
+        { label: 'Không giới hạn', value: '0' },
+        { label: '250 ms', value: '250' },
+        { label: '500 ms (khuyên dùng)', value: '500' },
+        { label: '1 giây', value: '1000' },
+        { label: '2 giây', value: '2000' },
+      ],
+    },
+    truyenzzRetryCount: {
+      value: '2',
+      label: 'Số lần retry khi website giới hạn',
+      type: 'Select',
+      options: [
+        { label: 'Không retry', value: '0' },
+        { label: '1 lần', value: '1' },
+        { label: '2 lần (khuyên dùng)', value: '2' },
+        { label: '3 lần', value: '3' },
+      ],
+    },
+  };
+
+  private requestQueue: Promise<void> = Promise.resolve();
+  private lastRequestTime = 0;
 
   filters = {
     genre: {
@@ -80,6 +111,60 @@ class TruyenZZPlugin extends NekoriBasePlugin {
   private absoluteUrl(path: string): string {
     if (/^https?:\/\//i.test(path)) return path;
     return `${this.site}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  private delay(milliseconds: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+  }
+
+  private getRequestDelay(): number {
+    const value = storage.get('truyenzzRequestDelay');
+    const milliseconds = Number(value ?? this.pluginSettings.truyenzzRequestDelay.value);
+    return Number.isFinite(milliseconds) && milliseconds >= 0 ? milliseconds : 500;
+  }
+
+  private getRetryCount(): number {
+    const value = storage.get('truyenzzRetryCount');
+    const count = Number(value ?? this.pluginSettings.truyenzzRetryCount.value);
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : 2;
+  }
+
+  private async waitForRequestSlot(): Promise<void> {
+    const scheduled = this.requestQueue.then(async () => {
+      const requestDelay = this.getRequestDelay();
+      const elapsed = Date.now() - this.lastRequestTime;
+      if (this.lastRequestTime > 0 && elapsed < requestDelay) {
+        await this.delay(requestDelay - elapsed);
+      }
+      this.lastRequestTime = Date.now();
+    });
+    this.requestQueue = scheduled.catch(() => undefined);
+    await scheduled;
+  }
+
+  private async fetchLimited(url: string): Promise<Response> {
+    const retryCount = this.getRetryCount();
+
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+      await this.waitForRequestSlot();
+      const response = await fetchApi(url);
+
+      if (response.ok) return response;
+      if (![429, 503].includes(response.status) || attempt === retryCount) {
+        return response;
+      }
+
+      const retryAfter = response.headers.get('Retry-After');
+      const retryAfterSeconds = retryAfter ? Number(retryAfter) : NaN;
+      const delayMilliseconds =
+        Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+          ? Math.ceil(retryAfterSeconds * 1000)
+          : this.getRequestDelay() * 2 * (attempt + 1);
+
+      await this.delay(delayMilliseconds);
+    }
+
+    throw new Error(`Failed to fetch ${url}`);
   }
 
   private coverUrl(src: string | undefined): string | undefined {
@@ -157,7 +242,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
 
     const query = params.toString();
     const url = `${this.site}/truyen${query ? `?${query}` : ''}`;
-    const res = await fetchApi(url);
+    const res = await this.fetchLimited(url);
     if (!res.ok) {
       throw new Error(`Failed to fetch popular novels: HTTP ${res.status}`);
     }
@@ -171,7 +256,9 @@ class TruyenZZPlugin extends NekoriBasePlugin {
     const params = new URLSearchParams({ q: searchTerm });
     if (pageNo > 1) params.set('trang', String(pageNo));
 
-    const res = await fetchApi(`${this.site}/truyen?${params.toString()}`);
+    const res = await this.fetchLimited(
+      `${this.site}/truyen?${params.toString()}`,
+    );
     if (!res.ok) {
       throw new Error(`Failed to search novels: HTTP ${res.status}`);
     }
@@ -180,7 +267,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
 
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const path = novelPath.startsWith('/') ? novelPath : `/${novelPath}`;
-    const res = await fetchApi(this.absoluteUrl(path));
+    const res = await this.fetchLimited(this.absoluteUrl(path));
     if (!res.ok) {
       throw new Error(`Failed to parse novel: HTTP ${res.status}`);
     }
@@ -222,7 +309,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
       if (page > 1) {
         const separator = path.includes('?') ? '&' : '?';
         const pageUrl = `${this.absoluteUrl(path)}${separator}trang=${page}#danh-sach-chuong`;
-        const pageRes = await fetchApi(pageUrl);
+        const pageRes = await this.fetchLimited(pageUrl);
         if (!pageRes.ok) break;
         pageBody = await pageRes.text();
       }
@@ -275,7 +362,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
   }
 
   async parseChapter(chapterPath: string): Promise<Plugin.ChapterContent> {
-    const res = await fetchApi(this.absoluteUrl(chapterPath));
+    const res = await this.fetchLimited(this.absoluteUrl(chapterPath));
     if (!res.ok) {
       throw new Error(`Failed to parse chapter: HTTP ${res.status}`);
     }

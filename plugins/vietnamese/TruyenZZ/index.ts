@@ -2,11 +2,11 @@ import { fetchApi } from '@libs/fetch';
 import { Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
 import { storage } from '@libs/storage';
-import type { Plugin as PluginTypes } from '@/types/plugin';
 import { NekoriBasePlugin } from '@nekori/plugin';
 import { ContentType, ContentWarning } from '@nekori/pluginMetadata';
 import { load as loadCheerio } from 'cheerio';
 
+import type { Plugin as PluginTypes } from '@/types/plugin';
 import { Plugin } from '@/types/plugin';
 
 class TruyenZZPlugin extends NekoriBasePlugin {
@@ -14,7 +14,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
   name = 'Truyện ZZ';
   icon = 'icon.svg';
   site = 'https://truyenzz.net';
-  version = '1.0.2';
+  version = '1.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -361,6 +361,30 @@ class TruyenZZPlugin extends NekoriBasePlugin {
     return pageCount;
   }
 
+  private cleanChapterText(text: string): string {
+    return text
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(
+        /\[\s*Truyện được đăng duy nhất tại TruyenZZ\.net\s*\]/gi,
+        '',
+      )
+      .replace(/—\s*đọc bản đầy đủ tại TruyenZZ\.net\s*—/gi, '')
+      .replace(/\s*\((Nguồn|Truyện ZZ)[^)]*\)\s*/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private isChapterNotice(text: string): boolean {
+    return (
+      /^(?:đọc mượt hơn trên app truyện zz\b|nghe đọc\b|bấm phát để nghe\b|giọng đọc\b|tài khoản thường được nghe\b|vip nghe không giới hạn\b|nội dung chương được bảo vệ bản quyền\b|đăng nhập để viết bình luận\b|chưa có bình luận nào\b)/i.test(
+        text,
+      ) ||
+      text === 'Đọc truyện chữ online miễn phí, cập nhật liên tục.' ||
+      text.startsWith('Liên hệ Admin') ||
+      /^© \d{4}/.test(text)
+    );
+  }
+
   async parseChapter(chapterPath: string): Promise<Plugin.ChapterContent> {
     const res = await this.fetchLimited(this.absoluteUrl(chapterPath));
     if (!res.ok) {
@@ -371,21 +395,9 @@ class TruyenZZPlugin extends NekoriBasePlugin {
     const paragraphs: string[] = [];
 
     $('p').each((_index, element) => {
-      const text = $(element)
-        .text()
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        .replace(/\s*\((Nguồn|Truyện ZZ)[^)]*\)\s*/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      const text = this.cleanChapterText($(element).text());
 
-      if (!text) return;
-      if (
-        text === 'Đọc truyện chữ online miễn phí, cập nhật liên tục.' ||
-        text.startsWith('Liên hệ Admin') ||
-        /^© \d{4}/.test(text)
-      ) {
-        return;
-      }
+      if (!text || this.isChapterNotice(text)) return;
       const escaped = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

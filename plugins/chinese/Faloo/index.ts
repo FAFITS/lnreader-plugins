@@ -60,7 +60,7 @@ class FalooPlugin extends NekoriBasePlugin {
   name = 'Faloo';
   icon = 'icon.png';
   site = 'https://www.faloo.com';
-  version = '1.0.0';
+  version = '1.0.1';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 

@@ -2,11 +2,14 @@ import { defaultCover } from '@libs/defaultCover';
 import { fetchApi } from '@libs/fetch';
 import { type Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
+import { bytesToUtf8 } from '@libs/utils';
 import { NekoriBasePlugin } from '@nekori/plugin';
 import { ContentType, ContentWarning } from '@nekori/pluginMetadata';
 import { load as loadCheerio } from 'cheerio';
 
 import { Plugin } from '@/types/plugin';
+
+import { decodeGbk } from './gbk';
 
 const PC_BASE = 'https://b.faloo.com';
 
@@ -209,9 +212,8 @@ class FalooPlugin extends NekoriBasePlugin {
       throw new Error(`Faloo request failed (${url}): HTTP ${response.status}`);
     }
     const contentType = response.headers.get('content-type') || '';
-    const buffer = await response.arrayBuffer();
-    const encoding = /utf-8/i.test(contentType) ? 'utf-8' : 'gbk';
-    return new TextDecoder(encoding).decode(buffer);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return /utf-8/i.test(contentType) ? bytesToUtf8(bytes) : decodeGbk(bytes);
   }
 
   private parseNovelList(html: string): Plugin.NovelItem[] {

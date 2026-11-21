@@ -1,0 +1,54 @@
+[
+	{
+		"id": "faloo.com",
+		"name": "Faloo",
+		"site": "https://www.faloo.com",
+		"lang": "中文, 汉语, 漢語",
+		"version": "1.0.1",
+		"url": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/.js/src/plugins/chinese/Faloo.js",
+		"iconUrl": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/public/static/src/faloo.com/icon.png",
+		"contentWarning": 0,
+		"contentType": "novel",
+		"isNekoriPlugin": true,
+		"minApiVersion": 1
+	},
+	{
+		"id": "qidian.com",
+		"name": "Qidian",
+		"site": "https://www.qidian.com",
+		"lang": "中文, 汉语, 漢語",
+		"version": "1.0.3",
+		"url": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/.js/src/plugins/chinese/Qidian.js",
+		"iconUrl": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/public/static/src/qidian.com/icon.svg",
+		"contentWarning": 0,
+		"contentType": "novel",
+		"isNekoriPlugin": true,
+		"minApiVersion": 1
+	},
+	{
+		"id": "fanfiction.net",
+		"name": "FanFiction.Net",
+		"site": "https://www.fanfiction.net",
+		"lang": "English",
+		"version": "1.0.1",
+		"url": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/.js/src/plugins/english/FanFiction.js",
+		"iconUrl": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/public/static/src/fanfiction.net/icon.png",
+		"contentWarning": 0,
+		"contentType": "novel",
+		"isNekoriPlugin": true,
+		"minApiVersion": 1
+	},
+	{
+		"id": "truyenzz",
+		"name": "Truyện ZZ",
+		"site": "https://truyenzz.net",
+		"lang": "Tiếng Việt",
+		"version": "1.0.3",
+		"url": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/.js/src/plugins/vietnamese/TruyenZZ.js",
+		"iconUrl": "https://raw.githubusercontent.com/FAFITS/lnreader-plugins/nekori/v1.0.0/public/static/src/truyenzz/icon.svg",
+		"contentWarning": 0,
+		"contentType": "novel",
+		"isNekoriPlugin": true,
+		"minApiVersion": 1
+	}
+]

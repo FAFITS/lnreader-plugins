@@ -30,18 +30,24 @@ class QidianPlugin extends NekoriBasePlugin {
   name = 'Qidian';
   icon = 'icon.svg';
   site = 'https://www.qidian.com';
-  version = '1.0.2';
+  version = '1.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
   private cachedCsrfToken: string | undefined;
 
   filters = {
+    keyword: {
+      type: FilterTypes.TextInput,
+      label: '关键词搜索 (Search Keyword)',
+      value: '',
+    },
     category: {
       type: FilterTypes.Picker,
       label: '分类 (Category)',
-      value: '21',
+      value: '',
       options: [
+        { label: '全部 / 默认玄幻 (All / Default)', value: '' },
         { label: '男频·玄幻 (Male - Xuanhuan)', value: '21' },
         { label: '男频·奇幻 (Male - Fantasy)', value: '1' },
         { label: '男频·武侠 (Male - Wuxia)', value: '2' },
@@ -73,8 +79,9 @@ class QidianPlugin extends NekoriBasePlugin {
     gender: {
       type: FilterTypes.Picker,
       label: '频道 (Audience)',
-      value: 'male',
+      value: '',
       options: [
+        { label: '全部 / 默认男频 (All / Default Male)', value: '' },
         { label: '男频 (Male-Oriented)', value: 'male' },
         { label: '女频 (Female-Oriented)', value: 'female' },
       ],
@@ -313,18 +320,74 @@ class QidianPlugin extends NekoriBasePlugin {
     return novels;
   }
 
+  private async fetchSearchResults(
+    term: string,
+    pageNo: number,
+    filters?: Plugin.PopularNovelsOptions<typeof this.filters>['filters'],
+  ): Promise<Plugin.NovelItem[]> {
+    const params = new URLSearchParams({
+      kw: term,
+      pageNum: String(pageNo),
+    });
+
+    if (filters) {
+      const selectedCategory = filters.category?.value || '';
+      const selectedGender = filters.gender?.value || '';
+      const isFemaleCategory = FEMALE_CATEGORIES.has(selectedCategory);
+
+      if (selectedGender === 'female' || isFemaleCategory) {
+        params.set('siteid', '0');
+      } else if (selectedGender === 'male') {
+        params.set('siteid', '1');
+      }
+
+      if (selectedCategory) {
+        const compatibleCategory =
+          selectedGender === 'female' && !isFemaleCategory
+            ? ''
+            : selectedCategory;
+        if (compatibleCategory) params.set('catId', compatibleCategory);
+      }
+
+      if (filters.sort?.value) params.set('orderBy', filters.sort.value);
+      if (filters.access?.value) params.set('vip', filters.access.value);
+      if (filters.length?.value) params.set('size', filters.length.value);
+      if (filters.status?.value) params.set('state', filters.status.value);
+      if (filters.quality?.value) params.set('sign', filters.quality.value);
+      if (filters.updated?.value) params.set('update', filters.updated.value);
+    }
+
+    const referer = `${this.site}/so/${encodeURIComponent(term)}.html`;
+    const data = await this.requestWebcommon(
+      '/webcommon/search/list',
+      params,
+      referer,
+    );
+    const bookInfo = this.isRecord(data.bookInfo) ? data.bookInfo : undefined;
+    if (!bookInfo || !Array.isArray(bookInfo.records)) {
+      throw new Error('Qidian search response did not contain novel records');
+    }
+
+    return this.parseRecordsToNovels(bookInfo.records);
+  }
+
   async popularNovels(
     pageNo: number,
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
     const filters = options?.filters;
-    const selectedCategory = filters?.category?.value || '21';
+    const keyword = filters?.keyword?.value?.trim() || '';
+    if (keyword) {
+      return this.fetchSearchResults(keyword, pageNo, filters);
+    }
+
+    const selectedCategory = filters?.category?.value || '';
     const selectedGender = filters?.gender?.value || 'male';
     const isFemaleCategory = FEMALE_CATEGORIES.has(selectedCategory);
     const category =
       selectedGender === 'female' && !isFemaleCategory
         ? '80'
-        : selectedCategory;
+        : selectedCategory || '21';
     const gender = FEMALE_CATEGORIES.has(category) ? 'female' : 'male';
 
     const params = new URLSearchParams({
@@ -364,24 +427,7 @@ class QidianPlugin extends NekoriBasePlugin {
   ): Promise<Plugin.NovelItem[]> {
     const term = searchTerm.trim();
     if (!term) return [];
-
-    const params = new URLSearchParams({
-      kw: term,
-      pageNum: String(pageNo),
-    });
-    const referer = `${this.site}/so/${encodeURIComponent(term)}.html`;
-
-    const data = await this.requestWebcommon(
-      '/webcommon/search/list',
-      params,
-      referer,
-    );
-    const bookInfo = this.isRecord(data.bookInfo) ? data.bookInfo : undefined;
-    if (!bookInfo || !Array.isArray(bookInfo.records)) {
-      throw new Error('Qidian search response did not contain novel records');
-    }
-
-    return this.parseRecordsToNovels(bookInfo.records);
+    return this.fetchSearchResults(term, pageNo);
   }
 
   private formatDescription(rawDesc: string): string {

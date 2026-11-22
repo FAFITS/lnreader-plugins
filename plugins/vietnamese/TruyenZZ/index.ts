@@ -119,8 +119,12 @@ class TruyenZZPlugin extends NekoriBasePlugin {
 
   private getRequestDelay(): number {
     const value = storage.get('truyenzzRequestDelay');
-    const milliseconds = Number(value ?? this.pluginSettings.truyenzzRequestDelay.value);
-    return Number.isFinite(milliseconds) && milliseconds >= 0 ? milliseconds : 500;
+    const milliseconds = Number(
+      value ?? this.pluginSettings.truyenzzRequestDelay.value,
+    );
+    return Number.isFinite(milliseconds) && milliseconds >= 0
+      ? milliseconds
+      : 500;
   }
 
   private getRetryCount(): number {
@@ -364,10 +368,7 @@ class TruyenZZPlugin extends NekoriBasePlugin {
   private cleanChapterText(text: string): string {
     return text
       .replace(/[\u200B-\u200D\uFEFF]/g, '')
-      .replace(
-        /\[\s*Truyện được đăng duy nhất tại TruyenZZ\.net\s*\]/gi,
-        '',
-      )
+      .replace(/\[\s*Truyện được đăng duy nhất tại TruyenZZ\.net\s*\]/gi, '')
       .replace(/—\s*đọc bản đầy đủ tại TruyenZZ\.net\s*—/gi, '')
       .replace(/\s*\((Nguồn|Truyện ZZ)[^)]*\)\s*/gi, ' ')
       .replace(/\s+/g, ' ')

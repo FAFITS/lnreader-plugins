@@ -1,0 +1,43 @@
+.hameln-maegaki,
+.hameln-atogaki {
+  margin: 1.25em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--md-sys-color-primary, #c65b1c);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.94em;
+  opacity: 0.92;
+}
+
+.hameln-honbun ruby rt {
+  font-size: 0.58em;
+  opacity: 0.85;
+}
+
+.hameln-honbun img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
+  border-radius: 6px;
+}
+
+.hameln-checkpoint {
+  margin: 1.5em auto;
+  padding: 1.2em 1.25em;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.hameln-retry-btn {
+  margin-top: 0.75em;
+  padding: 0.55em 1.1em;
+  border: 1px solid var(--md-sys-color-primary, #c65b1c);
+  border-radius: 8px;
+  background: var(--md-sys-color-primary, #c65b1c);
+  color: var(--md-sys-color-on-primary, #ffffff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}

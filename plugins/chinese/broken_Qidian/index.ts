@@ -413,9 +413,7 @@ class QidianPlugin extends NekoriBasePlugin {
       referer,
     );
     if (!Array.isArray(data.records)) {
-      throw new Error(
-        'Qidian category response did not contain novel records',
-      );
+      throw new Error('Qidian category response did not contain novel records');
     }
 
     return this.parseRecordsToNovels(data.records);

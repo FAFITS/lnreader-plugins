@@ -464,9 +464,10 @@ class Ciweimao extends NekoriBasePlugin {
         const name = $heading.text().replace(/\s+/g, ' ').trim();
         if (!name) return;
 
-        $heading.nextUntil('.sub-tit').find('a[href*="/chapter/"]').each(
-          (_, linkElement) => addChapter($(linkElement), name),
-        );
+        $heading
+          .nextUntil('.sub-tit')
+          .find('a[href*="/chapter/"]')
+          .each((_, linkElement) => addChapter($(linkElement), name));
       });
     } else {
       $(
@@ -497,7 +498,9 @@ class Ciweimao extends NekoriBasePlugin {
     );
     let $content = $('#J_BookRead');
     if (!$content.text().trim()) {
-      $ = await this.fetchDocument(`https://wap.ciweimao.com/chapter/${chapterId}`);
+      $ = await this.fetchDocument(
+        `https://wap.ciweimao.com/chapter/${chapterId}`,
+      );
       $content = $('#J_BookRead');
     }
 

@@ -23,6 +23,19 @@ type TargetRef = {
 
 type BlockReason = 'geo_blocked' | 'cf_challenge' | 'r18_gate';
 
+type PageFetchResult = {
+  html: string;
+  finalUrl: string;
+  status: number;
+  block?: BlockReason;
+};
+
+const CHAPTER_DATE_LINE_RE =
+  /^\d{4}[/年]\d{1,2}[/月]\d{1,2}日?(?:\([月火水木金土日]\))?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/;
+
+const NAV_CHAPTER_NOISE_RE =
+  /^(?:目\s*次|次の話|前の話|ホーム|ランキング|話一覧|各話一覧|本文|読者層が似ている作品)$/;
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -32,6 +45,20 @@ function escapeHtml(text: string): string {
 
 function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+function normalizeUrlProtocol(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.startsWith('//') ? `https:${trimmed}` : trimmed;
+}
+
+function encodeQuery(params: Record<string, string>): string {
+  return Object.entries(params)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join('&');
 }
 
 function normalizeDate(raw: string | undefined): string | null {
@@ -50,6 +77,32 @@ function normalizeDate(raw: string | undefined): string | null {
   }
 
   return null;
+}
+
+function normalizeHamelnImageUrl(rawUrl: string): string {
+  let normalized = normalizeUrlProtocol(rawUrl);
+  if (normalized.startsWith('/')) {
+    normalized = `https://img.syosetu.org${normalized}`;
+  } else if (/^http:\/\//i.test(normalized)) {
+    normalized = normalized.replace(/^http:\/\//i, 'https://');
+  }
+  return normalized.replace(
+    /^https:\/\/(?:h\.)?syosetu\.org\/img\//i,
+    'https://img.syosetu.org/img/',
+  );
+}
+
+function cleanChapterLines(rawText: string): string {
+  return rawText
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter(line => !CHAPTER_DATE_LINE_RE.test(line))
+    .filter(line => line !== '(改)')
+    .filter(line => !/^[●○◆◇■□★☆※・]$/.test(line))
+    .join(' ')
+    .trim();
 }
 
 class SyosetuOrgPlugin extends NekoriBasePlugin {
@@ -147,6 +200,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
   private requestQueue: Promise<void> = Promise.resolve();
   private lastRequestTime = 0;
+  private ageCookieSynced = false;
 
   private getSettingString(key: string, fallback: string): string {
     const val = storage.get(key);
@@ -160,7 +214,9 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
   private getRequestDelay(): number {
     const raw = storage.get('syosetuOrgRequestDelay');
-    const ms = Number(raw ?? this.pluginSettings.syosetuOrgRequestDelay.value);
+    const ms = Number(
+      raw ?? this.pluginSettings.syosetuOrgRequestDelay.value,
+    );
     return Number.isFinite(ms) && ms >= 0 ? ms : 1000;
   }
 
@@ -182,19 +238,20 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
   }
 
   private parseTargetRef(rawPath: string): TargetRef | undefined {
-    const trimmed = rawPath.trim();
-    if (!trimmed) return undefined;
+    const normalized = normalizeUrlProtocol(rawPath);
+    if (!normalized) return undefined;
 
-    if (/^\d+$/.test(trimmed)) {
-      return { id: trimmed, isR18: false };
+    if (/^\d+$/.test(normalized)) {
+      return { id: normalized, isR18: false };
     }
 
     const r18Prefix =
-      /^\/?r18\//i.test(trimmed) ||
-      /^https?:\/\/h\.syosetu\.org/i.test(trimmed);
+      /^\/?r18\//i.test(normalized) ||
+      /^https?:\/\/h\.syosetu\.org/i.test(normalized) ||
+      /[?&]mode=search_r18\b/i.test(normalized);
 
-    const novelMatch = trimmed.match(
-      /(?:^|\/)novel\/(\d+)(?:\/(\d+)\.html)?\/?(?:[?#].*)?$/i,
+    const novelMatch = normalized.match(
+      /(?:^|\/)novel\/(\d+)(?:\/(?:index\.html|(\d+)\.html))?\/?(?:[?#].*)?$/i,
     );
     if (novelMatch) {
       return {
@@ -204,14 +261,26 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       };
     }
 
-    const legacySubdomainMatch = trimmed.match(
-      /^https?:\/\/novel\.syosetu\.org\/(\d+)(?:\/(\d+)\.html)?\/?(?:[?#].*)?$/i,
+    const legacySubdomainMatch = normalized.match(
+      /^https?:\/\/novel\.syosetu\.org\/(\d+)(?:\/(?:index\.html|(\d+)\.html))?\/?(?:[?#].*)?$/i,
     );
     if (legacySubdomainMatch) {
       return {
         id: legacySubdomainMatch[1],
         isR18: false,
         chapterId: legacySubdomainMatch[2],
+      };
+    }
+
+    const detailMatch = normalized.match(/[?&]nid=(\d+)(?:&|$)/i);
+    if (
+      detailMatch &&
+      (/[?&]mode=(?:ss_detail|ss_detail3|ss_view_all)/i.test(normalized) ||
+        /^https?:\/\/(?:h\.)?syosetu\.org\/\?/i.test(normalized))
+    ) {
+      return {
+        id: detailMatch[1],
+        isR18: r18Prefix,
       };
     }
 
@@ -233,12 +302,13 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
   }
 
   private buildOriginUrl(pathOrUrl: string): string {
-    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
-    if (/^\/?r18\//i.test(pathOrUrl)) {
-      const stripped = pathOrUrl.replace(/^\/?r18/i, '');
+    const normalized = normalizeUrlProtocol(pathOrUrl);
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+    if (/^\/?r18\//i.test(normalized)) {
+      const stripped = normalized.replace(/^\/?r18/i, '');
       return `${R18_BASE_URL}${stripped.startsWith('/') ? stripped : `/${stripped}`}`;
     }
-    return `${BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+    return `${BASE_URL}${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
   }
 
   private applyProxy(targetUrl: string): string {
@@ -265,16 +335,32 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const cookieParts: string[] = [];
     if (allowR18) {
       cookieParts.push('over18=off');
-      for (const origin of [BASE_URL, R18_BASE_URL]) {
-        await setCookie(origin, {
+      if (!this.ageCookieSynced) {
+        const sharedOk = await setCookie(BASE_URL, {
           name: 'over18',
           value: 'off',
+          domain: '.syosetu.org',
           path: '/',
-        }).catch(() => undefined);
+        }).catch(() => false);
+        for (const origin of [BASE_URL, R18_BASE_URL]) {
+          await setCookie(origin, {
+            name: 'over18',
+            value: 'off',
+            path: '/',
+          }).catch(() => false);
+        }
+        if (sharedOk) {
+          this.ageCookieSynced = true;
+        }
       }
+    } else {
+      this.ageCookieSynced = false;
     }
 
-    const customCookie = this.getSettingString('syosetuOrgCookie', '');
+    const customCookie = this.getSettingString('syosetuOrgCookie', '')
+      .replace(/^cookie\s*:\s*/i, '')
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
     if (customCookie) {
       cookieParts.push(customCookie);
     }
@@ -292,7 +378,9 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       /<title[^>]*>\s*(?:Just a moment[.…]*|Please Wait[.…]* \| Cloudflare|しばらくお待ちください[.…]*)\s*<\/title>/i.test(
         html,
       ) ||
-      /window\._cf_chl_opt\s*=|id=["']cf-browser-verification["']/i.test(html)
+      /window\._cf_chl_opt\s*=|id=["']cf-browser-verification["']|\/cdn-cgi\/challenge-platform\/h\//i.test(
+        html,
+      )
     ) {
       return 'cf_challenge';
     }
@@ -309,7 +397,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     }
 
     if (
-      /<title[^>]*>\s*R18閲覧確認ページ\s*<\/title>|あなたは18歳以上ですか|この先はR-18作品/.test(
+      /<title[^>]*>\s*R18閲覧確認ページ\s*<\/title>|あなたは18歳以上ですか|あなたは成人ですか|この先はR-18作品|18歳未満の方の閲覧/.test(
         html,
       )
     ) {
@@ -323,14 +411,14 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     if (reason === 'geo_blocked') {
       return (
         `Truy cập syosetu.org bị Cloudflare WAF chặn (HTTP ${status} - Sorry, you have been blocked). ` +
-        'Trang web hiện chặn IP ngoài Nhật Bản và IP datacenter/CORS proxy công cộng. ' +
-        'Hãy dùng VPN/proxy có IP Nhật Bản (ưu tiên IP dân cư/sạch) hoặc cấu hình Proxy/Mirror URL trong cài đặt plugin.'
+        'Trang web hiện chặn một số dải IP ngoài Nhật Bản hoặc datacenter/CORS proxy công cộng. ' +
+        'Hãy đổi mạng/VPN sạch hơn hoặc cấu hình Proxy/Mirror URL trong cài đặt plugin.'
       );
     }
     if (reason === 'cf_challenge') {
       return (
         'syosetu.org yêu cầu xác minh Cloudflare Managed Challenge (Just a moment...). ' +
-        'Hãy mở trang trong WebView (hoặc Spawn New Tab trong Playground) để vượt qua xác minh và lưu cookie cf_clearance, rồi thử tải lại.'
+        'Hãy mở trang trong WebView (hoặc Control -> Spawn New Tab trong Playground) để vượt qua xác minh và lưu cookie cf_clearance, rồi thử tải lại.'
       );
     }
     return (
@@ -341,27 +429,21 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
   private async fetchPage(
     pathOrUrl: string,
-    referer = `${BASE_URL}/`,
-  ): Promise<{
-    html: string;
-    finalUrl: string;
-    status: number;
-    block?: BlockReason;
-  }> {
+    referer?: string,
+  ): Promise<PageFetchResult> {
     const targetUrl = this.buildOriginUrl(pathOrUrl);
     const requestUrl = this.applyProxy(targetUrl);
     const allowR18 = this.getSettingBool('syosetuOrgAllowR18', true);
     const cookieHeader = await this.ensureAgeCookies(allowR18);
+    const defaultReferer = targetUrl.startsWith(R18_BASE_URL)
+      ? `${R18_BASE_URL}/`
+      : `${BASE_URL}/`;
 
     const headers: Record<string, string> = {
       Accept:
         'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-      Referer: referer,
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
+      Referer: referer || defaultReferer,
     };
     if (cookieHeader) {
       headers.Cookie = cookieHeader;
@@ -386,10 +468,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
         };
       }
 
-      if (
-        (response.status === 429 || response.status === 503) &&
-        attempt === 0
-      ) {
+      if ((response.status === 429 || response.status === 503) && attempt === 0) {
         const retryAfter = Number(response.headers.get('Retry-After'));
         const waitMs =
           Number.isFinite(retryAfter) && retryAfter >= 0
@@ -415,11 +494,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     throw new Error(`Hameln request failed (${targetUrl})`);
   }
 
-  private assertPageReady(res: {
-    html: string;
-    status: number;
-    block?: BlockReason;
-  }): void {
+  private assertPageReady(res: PageFetchResult): void {
     if (res.block) {
       throw new Error(this.formatBlockMessage(res.block, res.status));
     }
@@ -432,10 +507,15 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     }
   }
 
-  private cleanTitleText($: CheerioAPI, el: CheerioSelection): string {
+  private cleanAnchorText($: CheerioAPI, el: CheerioSelection): string {
     const clone = el.clone();
-    clone.find('.search_novel_order, .date').remove();
-    return clone.text().replace(/\s+/g, ' ').trim();
+    clone
+      .find(
+        '.search_novel_order, .date, .episode-list__mark, .episode-list__date, .episode-list__revision, time',
+      )
+      .remove();
+    clone.find('br').replaceWith('\n');
+    return cleanChapterLines(clone.text());
   }
 
   private parseNovelList(html: string): Plugin.NovelItem[] {
@@ -444,6 +524,12 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const seen = new Set<string>();
 
     const pushCandidate = (anchor: CheerioSelection) => {
+      if (
+        anchor.closest('#header, #footer, #nav2, .topicPath').length > 0
+      ) {
+        return;
+      }
+
       const href = anchor.attr('href');
       if (!href || href.includes('#') || href.includes('mode=review')) return;
       const ref = this.parseTargetRef(href);
@@ -452,8 +538,8 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       const key = `${ref.isR18 ? 'r18' : 'std'}:${ref.id}`;
       if (seen.has(key)) return;
 
-      const name = this.cleanTitleText($, anchor);
-      if (!name || /^(?:目\s*次|次の話|前の話|ホーム|ランキング)$/.test(name)) {
+      const name = this.cleanAnchorText($, anchor);
+      if (!name || NAV_CHAPTER_NOISE_RE.test(name)) {
         return;
       }
 
@@ -470,7 +556,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       const container = $(el);
       const primary = container
         .find(
-          'div.blo_title_base > a[href*="/novel/"], a.search_novel_title[href*="/novel/"]',
+          'div.blo_title_base > a[href*="/novel/"], a.blo_title_link[href*="/novel/"], h3 > a[href*="/novel/"], a.search_novel_title[href*="/novel/"]',
         )
         .first();
       if (primary.length) {
@@ -484,20 +570,27 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     // Mobile / modern search & ranking cards (.search_box, .section)
     if (!novels.length) {
       $(
-        'a.search_novel_title[href*="/novel/"], .search_box a[href*="/novel/"]',
+        'a.search_novel_title[href*="/novel/"], .search_box a[href*="/novel/"], div.section[id^="h"] a[href*="/novel/"]',
       ).each((_idx, el) => {
         pushCandidate($(el));
       });
     }
 
-    // Home / top page & author works (ul.entry)
+    // Mobile top page & author works (ul.entry)
     if (!novels.length) {
       $('ul.entry > li > a[href*="/novel/"]').each((_idx, el) => {
         pushCandidate($(el));
       });
     }
 
-    // Generic fallback for novel links
+    // Desktop home / top sections (#main div.section.normal)
+    if (!novels.length) {
+      $('#main div.section.normal a[href*="/novel/"]').each((_idx, el) => {
+        pushCandidate($(el));
+      });
+    }
+
+    // Generic fallback for novel links outside chrome
     if (!novels.length) {
       $('a[href*="/novel/"]').each((_idx, el) => {
         pushCandidate($(el));
@@ -507,25 +600,44 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     return novels;
   }
 
-  private async fetchSearchResults(
-    params: URLSearchParams,
+  private hasSearchPageContent(
+    $: CheerioAPI,
     pageNo: number,
-  ): Promise<Plugin.NovelItem[]> {
-    const res = await this.fetchPage(
-      `${BASE_URL}/search/?${params.toString()}`,
-    );
-    this.assertPageReady(res);
+  ): boolean {
+    if (pageNo <= 1) return true;
 
-    // Avoid repeating page 1 endlessly when pageNo exceeds total pages
-    if (pageNo > 1) {
-      const $ = loadCheerio(res.html);
-      const hasPagination = $('a[href*="page="], a[rel="next"]').length > 0;
-      if (!hasPagination) return [];
+    const activePageText = $('div.paging strong').first().text().trim();
+    if (/^\d+$/.test(activePageText) && Number(activePageText) !== pageNo) {
+      return false;
+    }
+
+    const hasPagination =
+      $('div.paging a, a[href*="page="], a[rel="next"], a[rel="prev"]')
+        .length > 0;
+    if (!hasPagination) return false;
+
+    if (pageNo > 2) {
       const hasAdjacent =
         $(`a[href*="page=${pageNo - 1}"]`).length > 0 ||
         $(`a[href*="page=${pageNo + 1}"]`).length > 0 ||
-        $('a[rel="next"]').length > 0;
-      if (pageNo > 2 && !hasAdjacent) return [];
+        $('a[rel="next"]').length > 0 ||
+        Boolean(activePageText && Number(activePageText) === pageNo);
+      if (!hasAdjacent) return false;
+    }
+
+    return true;
+  }
+
+  private async fetchSearchResults(
+    params: Record<string, string>,
+    pageNo: number,
+  ): Promise<Plugin.NovelItem[]> {
+    const res = await this.fetchPage(`${BASE_URL}/search/?${encodeQuery(params)}`);
+    this.assertPageReady(res);
+
+    const $ = loadCheerio(res.html);
+    if (!this.hasSearchPageContent($, pageNo)) {
+      return [];
     }
 
     return this.parseNovelList(res.html);
@@ -567,14 +679,14 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     }
 
     const searchSortType = browse === 'latest' ? '0' : '28';
-    const params = new URLSearchParams({
+    const params: Record<string, string> = {
       mode: 'search',
       type: searchSortType,
       search_type: '0',
       page: String(pageNo),
-    });
-    if (keyword) params.set('word', keyword);
-    if (gensaku) params.set('gensaku', gensaku);
+    };
+    if (keyword) params.word = keyword;
+    if (gensaku) params.gensaku = gensaku;
 
     return this.fetchSearchResults(params, pageNo);
   }
@@ -586,18 +698,22 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const term = searchTerm.trim();
     if (!term || !Number.isInteger(pageNo) || pageNo < 1) return [];
 
-    const params = new URLSearchParams({
-      mode: 'search',
-      word: term,
-      type: '28',
-      search_type: '0',
-      page: String(pageNo),
-    });
-
-    return this.fetchSearchResults(params, pageNo);
+    return this.fetchSearchResults(
+      {
+        mode: 'search',
+        word: term,
+        type: '28',
+        search_type: '0',
+        page: String(pageNo),
+      },
+      pageNo,
+    );
   }
 
-  private extractTextWithBreaks($: CheerioAPI, el: CheerioSelection): string {
+  private extractTextWithBreaks(
+    $: CheerioAPI,
+    el: CheerioSelection,
+  ): string {
     const clone = el.clone();
     clone.find('script, style, hr').remove();
     clone.find('br').replaceWith('\n');
@@ -620,7 +736,117 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     return NovelStatus.Unknown;
   }
 
-  private extractChapters(
+  private extractEpisodeId(
+    href: string | undefined,
+    novelId: string,
+  ): string | undefined {
+    if (!href) return undefined;
+    const trimmed = href.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith('#') ||
+      trimmed.includes('mode=') ||
+      /(?:^|\/)index\.html(?:[?#].*)?$/i.test(trimmed)
+    ) {
+      return undefined;
+    }
+
+    const relMatch = trimmed.match(/^(?:\.\/)?(\d+)\.html(?:[?#].*)?$/i);
+    if (relMatch) return relMatch[1];
+
+    const ref = this.parseTargetRef(trimmed);
+    if (ref && ref.id === novelId && ref.chapterId) {
+      return ref.chapterId;
+    }
+
+    return undefined;
+  }
+
+  private pushChapter(
+    chapters: Plugin.ChapterItem[],
+    seen: Set<string>,
+    novelId: string,
+    isR18: boolean,
+    chapterId: string,
+    name: string,
+    releaseTime: string | null,
+    currentVolume?: string,
+  ): void {
+    const path = this.formatChapterPath(novelId, chapterId, isR18);
+    if (seen.has(path)) return;
+    seen.add(path);
+
+    const chapter: Plugin.ChapterItem = {
+      name: name || `第${chapterId}話`,
+      path,
+      releaseTime,
+      chapterNumber: Number(chapterId),
+    };
+    if (currentVolume) {
+      chapter.page = currentVolume;
+    }
+    chapters.push(chapter);
+  }
+
+  private parseSectionEpisodeList(
+    $: CheerioAPI,
+    novelId: string,
+    isR18: boolean,
+  ): Plugin.ChapterItem[] {
+    const chapters: Plugin.ChapterItem[] = [];
+    const seen = new Set<string>();
+    const episodeLists = $('section.episode-list');
+    if (!episodeLists.length) return chapters;
+
+    let currentVolume: string | undefined;
+    episodeLists.find('li').each((_idx, el) => {
+      const $item = $(el);
+      if ($item.hasClass('episode-list__chapter')) {
+        const volTitle = (
+          $item.find('.episode-list__chapter-title').first().text() ||
+          $item.text()
+        )
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (volTitle && !NAV_CHAPTER_NOISE_RE.test(volTitle)) {
+          currentVolume = volTitle;
+        }
+        return;
+      }
+
+      const link = $item
+        .find('a.episode-list__link, a[href]')
+        .filter((_i, a) => Boolean(this.extractEpisodeId($(a).attr('href'), novelId)))
+        .first();
+      const chapterId = this.extractEpisodeId(link.attr('href'), novelId);
+      if (!chapterId) return;
+
+      const titleEl = link.find('.episode-list__title').first();
+      const rawName = titleEl.length
+        ? cleanChapterLines(titleEl.text())
+        : this.cleanAnchorText($, link);
+
+      const timeEl = link.find('time').first();
+      const releaseTime = normalizeDate(
+        timeEl.attr('datetime') || timeEl.text() || link.find('.episode-list__date').text(),
+      );
+
+      this.pushChapter(
+        chapters,
+        seen,
+        novelId,
+        isR18,
+        chapterId,
+        rawName,
+        releaseTime,
+        currentVolume,
+      );
+    });
+
+    return chapters;
+  }
+
+  private parseTableChapters(
     $: CheerioAPI,
     novelId: string,
     isR18: boolean,
@@ -628,109 +854,225 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const chapters: Plugin.ChapterItem[] = [];
     const seen = new Set<string>();
 
-    // Modern layout (2026+): section.episode-list
-    const episodeList = $('section.episode-list');
-    if (episodeList.length > 0) {
+    $('table').each((_tIdx, tbl) => {
+      const $table = $(tbl);
+      if (
+        $table.closest('#header, #footer, .section3').length > 0 ||
+        !$table
+          .find('a[href]')
+          .toArray()
+          .some(a => Boolean(this.extractEpisodeId($(a).attr('href'), novelId)))
+      ) {
+        return;
+      }
+
       let currentVolume: string | undefined;
-      episodeList.find('li').each((_idx, el) => {
-        const $item = $(el);
-        if ($item.hasClass('episode-list__chapter')) {
-          const volTitle = $item
-            .find('.episode-list__chapter-title')
-            .text()
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (volTitle) currentVolume = volTitle;
+      $table.find('tr').each((_rIdx, row) => {
+        const $row = $(row);
+        const cells = $row.find('td, th');
+        const link = $row
+          .find('a[href]')
+          .filter((_i, a) =>
+            Boolean(this.extractEpisodeId($(a).attr('href'), novelId)),
+          )
+          .first();
+        const chapterId = this.extractEpisodeId(link.attr('href'), novelId);
+
+        if (!chapterId) {
+          const colspanCell = cells.filter('[colspan]').first();
+          if (colspanCell.length > 0 && $row.find('a[href]').length === 0) {
+            const strongText = (
+              colspanCell.find('strong, b').first().text() ||
+              colspanCell.text()
+            )
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (strongText && !NAV_CHAPTER_NOISE_RE.test(strongText)) {
+              currentVolume = strongText;
+            }
+          }
           return;
         }
 
-        const link = $item
-          .find('a.episode-list__link, a[href*=".html"]')
-          .first();
-        const href = link.attr('href');
-        const epMatch = href?.match(/(\d+)\.html/);
-        if (!href || !epMatch) return;
-
-        const chapterId = epMatch[1];
-        const path = this.formatChapterPath(novelId, chapterId, isR18);
-        if (seen.has(path)) return;
-        seen.add(path);
-
-        const titleEl = link.find('.episode-list__title').first();
-        const rawName = titleEl.length
-          ? titleEl.text()
-          : this.cleanTitleText($, link);
-        const name = rawName.replace(/\s+/g, ' ').trim() || `第${chapterId}話`;
-
-        const timeEl = link.find('time').first();
-        const releaseTime = normalizeDate(
-          timeEl.attr('datetime') || timeEl.text(),
-        );
-
-        const chapter: Plugin.ChapterItem = {
-          name,
-          path,
-          releaseTime,
-          chapterNumber: Number(chapterId),
-        };
-        if (currentVolume) chapter.page = currentVolume;
-        chapters.push(chapter);
-      });
-
-      if (chapters.length > 0) return chapters;
-    }
-
-    // Legacy layout: div#maind table
-    const table = $('div#maind table').first();
-    if (table.length > 0) {
-      let currentVolume: string | undefined;
-      table.find('tr').each((_idx, row) => {
-        const $row = $(row);
-        const cells = $row.find('td');
-        const hasChapterLink = $row.find('a[href*=".html"]').length > 0;
-        const colspanCell = cells.filter('[colspan]').first();
-        if (!hasChapterLink && colspanCell.length > 0) {
-          const strongText = colspanCell
-            .find('strong')
-            .first()
-            .text()
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (strongText) {
-            currentVolume = strongText;
-            return;
-          }
-        }
-
-        const link = $row.find('a[href*=".html"]').first();
-        const href = link.attr('href');
-        if (!href || href.includes('index.html')) return;
-        const epMatch = href.match(/(\d+)\.html/);
-        if (!epMatch) return;
-
-        const chapterId = epMatch[1];
-        const path = this.formatChapterPath(novelId, chapterId, isR18);
-        if (seen.has(path)) return;
-        seen.add(path);
-
-        const name =
-          link.text().replace(/\s+/g, ' ').trim() || `第${chapterId}話`;
+        const name = this.cleanAnchorText($, link);
+        const timeEl = $row.find('time').first();
         const dateCellText =
-          cells.last().find('time').attr('datetime') || cells.last().text();
+          timeEl.attr('datetime') ||
+          timeEl.text() ||
+          cells.last().text();
         const releaseTime = normalizeDate(dateCellText);
 
-        const chapter: Plugin.ChapterItem = {
+        this.pushChapter(
+          chapters,
+          seen,
+          novelId,
+          isR18,
+          chapterId,
           name,
-          path,
           releaseTime,
-          chapterNumber: Number(chapterId),
-        };
-        if (currentVolume) chapter.page = currentVolume;
-        chapters.push(chapter);
+          currentVolume,
+        );
       });
-    }
+    });
 
     return chapters;
+  }
+
+  private parseMobileEntryChapters(
+    $: CheerioAPI,
+    novelId: string,
+    isR18: boolean,
+  ): Plugin.ChapterItem[] {
+    const chapters: Plugin.ChapterItem[] = [];
+    const seen = new Set<string>();
+
+    $('ul.entry').each((_uIdx, ul) => {
+      const $ul = $(ul);
+      if ($ul.closest('#header, #footer').length > 0) return;
+
+      const hasEpisodes = $ul
+        .find('a[href]')
+        .toArray()
+        .some(a => Boolean(this.extractEpisodeId($(a).attr('href'), novelId)));
+      if (!hasEpisodes) return;
+
+      let currentVolume: string | undefined;
+      $ul.children('li').each((_lIdx, li) => {
+        const $li = $(li);
+        const link = $li
+          .find('a[href]')
+          .filter((_i, a) =>
+            Boolean(this.extractEpisodeId($(a).attr('href'), novelId)),
+          )
+          .first();
+        const chapterId = this.extractEpisodeId(link.attr('href'), novelId);
+
+        if (!chapterId) {
+          if ($li.find('a[href]').length === 0) {
+            const heading = $li.text().replace(/\s+/g, ' ').trim();
+            if (heading && !NAV_CHAPTER_NOISE_RE.test(heading)) {
+              currentVolume = heading;
+            }
+          }
+          return;
+        }
+
+        const name = this.cleanAnchorText($, link);
+        const timeEl = link.find('time').first();
+        const releaseTime = normalizeDate(
+          timeEl.attr('datetime') ||
+            timeEl.text() ||
+            link.find('.date').first().text() ||
+            link.text(),
+        );
+
+        this.pushChapter(
+          chapters,
+          seen,
+          novelId,
+          isR18,
+          chapterId,
+          name,
+          releaseTime,
+          currentVolume,
+        );
+      });
+    });
+
+    return chapters;
+  }
+
+  private parseFallbackChapters(
+    $: CheerioAPI,
+    novelId: string,
+    isR18: boolean,
+  ): Plugin.ChapterItem[] {
+    const chapters: Plugin.ChapterItem[] = [];
+    const seen = new Set<string>();
+
+    $('a[href]').each((_idx, el) => {
+      const $link = $(el);
+      if (
+        $link.hasClass('next_page_link') ||
+        $link.hasClass('prev_page_link') ||
+        $link.closest(
+          '#header, #footer, #nav2, .novelnavi, .section3, .topicPath',
+        ).length > 0
+      ) {
+        return;
+      }
+
+      const chapterId = this.extractEpisodeId($link.attr('href'), novelId);
+      if (!chapterId) return;
+
+      const name = this.cleanAnchorText($, $link);
+      if (!name || NAV_CHAPTER_NOISE_RE.test(name)) return;
+
+      const timeEl = $link.find('time').first();
+      const releaseTime = normalizeDate(
+        timeEl.attr('datetime') ||
+          timeEl.text() ||
+          $link.find('.date').first().text() ||
+          $link.parent().find('.date, time').first().text(),
+      );
+
+      this.pushChapter(
+        chapters,
+        seen,
+        novelId,
+        isR18,
+        chapterId,
+        name,
+        releaseTime,
+      );
+    });
+
+    return chapters;
+  }
+
+  private extractChapters(
+    $: CheerioAPI,
+    novelId: string,
+    isR18: boolean,
+  ): Plugin.ChapterItem[] {
+    const fromEpisodeList = this.parseSectionEpisodeList($, novelId, isR18);
+    if (fromEpisodeList.length > 0) return fromEpisodeList;
+
+    const fromTable = this.parseTableChapters($, novelId, isR18);
+    if (fromTable.length > 0) return fromTable;
+
+    const fromMobileEntry = this.parseMobileEntryChapters($, novelId, isR18);
+    if (fromMobileEntry.length > 0) return fromMobileEntry;
+
+    if ($('#honbun').length > 0) return [];
+    return this.parseFallbackChapters($, novelId, isR18);
+  }
+
+  private async fetchNovelWithR18Fallback(
+    ref: TargetRef,
+  ): Promise<{ res: PageFetchResult; isR18: boolean }> {
+    const canonicalPath = this.formatNovelPath(ref.id, ref.isR18);
+    let res = await this.fetchPage(canonicalPath);
+    let isR18 =
+      ref.isR18 || /^https?:\/\/h\.syosetu\.org/i.test(res.finalUrl);
+
+    if (!isR18 && this.getSettingBool('syosetuOrgAllowR18', true)) {
+      const mentionsR18Host =
+        res.block === 'r18_gate' ||
+        new RegExp(`h\\.syosetu\\.org\\/novel\\/${ref.id}\\b`, 'i').test(
+          res.html,
+        );
+      if (mentionsR18Host) {
+        const retryRes = await this.fetchPage(
+          this.formatNovelPath(ref.id, true),
+          `${R18_BASE_URL}/`,
+        );
+        res = retryRes;
+        isR18 = true;
+      }
+    }
+
+    return { res, isR18 };
   }
 
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
@@ -739,20 +1081,30 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       throw new Error(`Invalid Hameln novel path: ${novelPath}`);
     }
 
-    const canonicalPath = this.formatNovelPath(ref.id, ref.isR18);
-    const res = await this.fetchPage(canonicalPath);
+    const { res, isR18 } = await this.fetchNovelWithR18Fallback(ref);
     this.assertPageReady(res);
 
-    const isR18 =
-      ref.isR18 || /^https?:\/\/h\.syosetu\.org/i.test(res.finalUrl);
     const resolvedPath = this.formatNovelPath(ref.id, isR18);
-
     const $ = loadCheerio(res.html);
     const maind = $('#maind');
+    const root = maind.length ? maind : $('#main').length ? $('#main') : $('body');
+    const headerScope = root.find('.ss').first().length
+      ? root.find('.ss').first()
+      : root;
 
     const title =
-      maind.find('span[itemprop="name"]').first().text().trim() ||
-      maind.find('.ss p span a').first().text().trim() ||
+      root
+        .find('[itemprop="name"]')
+        .not('[itemprop="author"] [itemprop="name"]')
+        .first()
+        .text()
+        .trim() ||
+      $('#pagetitle a[href="./"], #maind a[href="./"]')
+        .first()
+        .text()
+        .trim() ||
+      root.find('.ss p span a[href="./"]').first().text().trim() ||
+      $('#pagetitle h1, #pagetitle .title, h1').first().text().trim() ||
       $('title')
         .text()
         .replace(/\s*-\s*ハーメルン\s*$/, '')
@@ -760,13 +1112,24 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       `Hameln ${ref.id}`;
 
     let author =
-      maind.find('span[itemprop="author"] a').first().text().trim() ||
-      maind.find('[itemprop="author"]').first().text().trim() ||
-      maind.find('.ss p a[href*="/user/"]').first().text().trim();
+      root.find('[itemprop="author"] [itemprop="name"]').first().text().trim() ||
+      root.find('[itemprop="author"] a').first().text().trim() ||
+      root.find('[itemprop="author"]').first().text().trim() ||
+      root
+        .find('a[href*="/user/"], a[href*="mode=user"]')
+        .filter((_i, el) => $(el).closest('#header, #footer').length === 0)
+        .first()
+        .text()
+        .trim();
 
     if (!author) {
-      const firstSsText = maind.find('.ss').first().text();
-      const authorMatch = firstSsText.match(/作(?:者)?[：:]\s*([^\n]+)/);
+      const authorSource = $('#pagetitle').first().length
+        ? $('#pagetitle').first()
+        : headerScope;
+      const headerText = this.extractTextWithBreaks($, authorSource);
+      const authorMatch =
+        headerText.match(/作者[：:]\s*([^\n]+)/) ||
+        headerText.match(/(?:^|[\s\u3000])作[：:]\s*([^\n]+)/);
       if (authorMatch?.[1]) {
         author = authorMatch[1].trim();
       }
@@ -775,8 +1138,13 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const ogImage =
       $('meta[property="og:image"]').attr('content')?.trim() ||
       $('meta[itemprop="image"]').attr('content')?.trim();
+    const normalizedOg = ogImage ? normalizeUrlProtocol(ogImage) : '';
     const cover =
-      ogImage && /^https?:\/\//i.test(ogImage) ? ogImage : defaultCover;
+      normalizedOg &&
+      /^https?:\/\//i.test(normalizedOg) &&
+      !/banner|apple-touch-icon|icon-\d+x\d+/i.test(normalizedOg)
+        ? normalizedOg
+        : defaultCover;
 
     const genreList: string[] = [];
     const addGenre = (text: string) => {
@@ -786,23 +1154,28 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       }
     };
 
-    maind
+    root
       .find('[itemprop="genre"] a, [itemprop="keywords"] a')
       .each((_i, el) => {
         addGenre($(el).text());
       });
-    maind
-      .find('.ss')
-      .first()
+    headerScope
       .find('a.alert_color, a[href*="mode=search"]')
+      .filter((_i, el) => $(el).closest('#header, #footer').length === 0)
       .each((_i, el) => {
         addGenre($(el).text());
       });
 
-    const ssDivs = maind.find('.ss');
+    const ssDivs = root.find('.ss');
     let summary = '';
     if (ssDivs.length >= 2 && $('#honbun').length === 0) {
-      summary = this.extractTextWithBreaks($, ssDivs.eq(1));
+      const candidate = ssDivs.eq(1);
+      if (
+        candidate.find('section.episode-list, table, ul.entry').length === 0 &&
+        candidate.attr('id') !== 'fmenu'
+      ) {
+        summary = this.extractTextWithBreaks($, candidate);
+      }
     }
     if (!summary) {
       summary =
@@ -813,6 +1186,14 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
     let chapters = this.extractChapters($, ref.id, isR18);
     let status: string = NovelStatus.Unknown;
+
+    for (const tag of genreList) {
+      const inferred = this.parseStatusFromText(tag);
+      if (inferred !== NovelStatus.Unknown) {
+        status = inferred;
+        break;
+      }
+    }
 
     // Oneshot (短編): the novel TOC URL renders #honbun directly
     if (chapters.length === 0 && $('#honbun').length > 0) {
@@ -835,9 +1216,24 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
         );
         if (!detailRes.block) {
           const detail$ = loadCheerio(detailRes.html);
-          const detailText = detail$('table').text();
-          if (detailText) {
-            status = this.parseStatusFromText(detailText);
+          let statusCellText = '';
+          detail$('table tr').each((_idx, tr) => {
+            if (statusCellText) return;
+            const $tr = detail$(tr);
+            const label = $tr
+              .find('th, td.label')
+              .first()
+              .text()
+              .replace(/\s+/g, '');
+            if (/話数/.test(label)) {
+              statusCellText = $tr.find('td').last().text();
+            }
+          });
+          if (statusCellText) {
+            const parsedStatus = this.parseStatusFromText(statusCellText);
+            if (parsedStatus !== NovelStatus.Unknown) {
+              status = parsedStatus;
+            }
           }
         }
       } catch {
@@ -860,6 +1256,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
   private renderBodyFragment(
     $: CheerioAPI,
     container: CheerioSelection,
+    trimBoundaryBreaks = false,
   ): { html: string; hasText: boolean; hasImages: boolean } {
     const clone = container.clone();
     clone
@@ -871,12 +1268,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       const $a = $(el);
       const rawHref = $a.attr('href')?.trim();
       if (!rawHref) return;
-      const src = rawHref
-        .replace(/^http:\/\//i, 'https://')
-        .replace(
-          /^https:\/\/syosetu\.org\/img\//i,
-          'https://img.syosetu.org/img/',
-        );
+      const src = normalizeHamelnImageUrl(rawHref);
       const alt = $a.attr('alt')?.trim() || '挿絵';
       $a.replaceWith(
         `<p><img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" /></p>`,
@@ -884,11 +1276,22 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       hasImages = true;
     });
 
-    if (clone.find('img').length > 0) {
+    clone.find('img[src]').each((_i, el) => {
+      const $img = $(el);
+      const rawSrc = $img.attr('src')?.trim();
+      if (!rawSrc) return;
+      $img.attr('src', normalizeHamelnImageUrl(rawSrc));
       hasImages = true;
+    });
+
+    let html = (clone.html() || '').trim();
+    if (trimBoundaryBreaks) {
+      html = html
+        .replace(/^(?:\s*(?:<br\s*\/?>|<hr\s*\/?>)\s*)+/gi, '')
+        .replace(/(?:\s*(?:<br\s*\/?>|<hr\s*\/?>)\s*)+$/gi, '')
+        .trim();
     }
 
-    const html = (clone.html() || '').trim();
     const hasText = clone.text().replace(/[\s\u3000]+/g, '').length > 0;
     return { html, hasText, hasImages };
   }
@@ -899,14 +1302,32 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       throw new Error(`Invalid Hameln chapter path: ${chapterPath}`);
     }
 
-    const normalizedPath = ref.chapterId
-      ? this.formatChapterPath(ref.id, ref.chapterId, ref.isR18)
-      : this.formatNovelPath(ref.id, ref.isR18);
-
-    const res = await this.fetchPage(
+    let isR18 = ref.isR18;
+    let normalizedPath = ref.chapterId
+      ? this.formatChapterPath(ref.id, ref.chapterId, isR18)
+      : this.formatNovelPath(ref.id, isR18);
+    let res = await this.fetchPage(
       normalizedPath,
-      this.buildOriginUrl(this.formatNovelPath(ref.id, ref.isR18)),
+      this.buildOriginUrl(this.formatNovelPath(ref.id, isR18)),
     );
+
+    if (!isR18 && this.getSettingBool('syosetuOrgAllowR18', true)) {
+      const mentionsR18Host =
+        res.block === 'r18_gate' ||
+        new RegExp(`h\\.syosetu\\.org\\/novel\\/${ref.id}\\b`, 'i').test(
+          res.html,
+        );
+      if (mentionsR18Host) {
+        isR18 = true;
+        normalizedPath = ref.chapterId
+          ? this.formatChapterPath(ref.id, ref.chapterId, true)
+          : this.formatNovelPath(ref.id, true);
+        res = await this.fetchPage(
+          normalizedPath,
+          this.buildOriginUrl(this.formatNovelPath(ref.id, true)),
+        );
+      }
+    }
 
     if (res.block) {
       const message = this.formatBlockMessage(res.block, res.status);
@@ -940,14 +1361,23 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       true,
     );
 
-    const titleSpan = $('#maind div.ss span[style*="font-size:120%"]')
-      .filter((_i, el) => $(el).find('a').length === 0)
+    const titleSpan = $(
+      '#maind span[style*="font-size:120%"], #maind span[style*="font-size: 120%"], #ss span[style*="font-size:120%"], #ss span[style*="font-size: 120%"], div.ss span[style*="font-size:120%"], div.ss span[style*="font-size: 120%"]',
+    )
+      .filter(
+        (_i, el) =>
+          $(el).find('a').length === 0 &&
+          $(el).closest('#header, #footer').length === 0,
+      )
       .first();
+
     let chapterTitle = '';
     if (titleSpan.length > 0) {
       const titleClone = titleSpan.clone();
       titleClone.find('br').replaceWith(' — ');
       chapterTitle = titleClone.text().replace(/\s+/g, ' ').trim();
+    } else {
+      chapterTitle = $('#pagetitle .subtitle, #ss > h2').first().text().trim();
     }
 
     const sections: string[] = [];
@@ -962,7 +1392,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     if (includeNotes) {
       const maegaki = $('#maegaki').first();
       if (maegaki.length > 0) {
-        const rendered = this.renderBodyFragment($, maegaki);
+        const rendered = this.renderBodyFragment($, maegaki, true);
         if (rendered.html) {
           sections.push(
             `<div class="hameln-maegaki">${rendered.html}</div><hr />`,
@@ -983,7 +1413,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     if (includeNotes) {
       const atogaki = $('#atogaki').first();
       if (atogaki.length > 0) {
-        const rendered = this.renderBodyFragment($, atogaki);
+        const rendered = this.renderBodyFragment($, atogaki, true);
         if (rendered.html) {
           sections.push(
             `<hr /><div class="hameln-atogaki">${rendered.html}</div>`,

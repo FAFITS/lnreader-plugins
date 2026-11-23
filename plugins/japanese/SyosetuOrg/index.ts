@@ -112,7 +112,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
   customCSS = 'style.css';
   customJS = 'reader.js';
   site = BASE_URL;
-  version = '1.0.0';
+  version = '1.0.1';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.MIXED;
 

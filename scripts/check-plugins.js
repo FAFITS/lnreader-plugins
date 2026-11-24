@@ -76,6 +76,7 @@ if (values.help) {
         'parseNovel',
         'parsePage',
         'parseChapter',
+        'getFilterSuggestions',
         'resolveUrl',
       ]);
       const requestedMethods = selected

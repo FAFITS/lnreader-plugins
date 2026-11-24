@@ -37,6 +37,7 @@ type DebugMethod =
   | 'parseNovel'
   | 'parsePage'
   | 'parseChapter'
+  | 'getFilterSuggestions'
   | 'resolveUrl';
 
 export type PluginCheckResult = {
@@ -366,6 +367,18 @@ async function runDebug(
           options.timeout,
         );
         break;
+      case 'getFilterSuggestions':
+        if (typeof plugin.getFilterSuggestions !== 'function')
+          throw new Error('getFilterSuggestions unavailable');
+        value = await withTimeout(
+          plugin.getFilterSuggestions(
+            ...(args as Parameters<
+              NonNullable<Plugin.PluginSource['getFilterSuggestions']>
+            >),
+          ),
+          options.timeout,
+        );
+        break;
       case 'resolveUrl':
         if (!plugin.resolveUrl) throw new Error('resolveUrl unavailable');
         value = plugin.resolveUrl(
@@ -383,6 +396,7 @@ async function runDebug(
     else if (method === 'parsePage') validatePage(value);
     else if (method === 'parseChapter')
       validateChapter(value, plugin.isNekoriPlugin === true);
+    else if (method === 'getFilterSuggestions') validateSuggestions(value);
     else if (method === 'resolveUrl') validateResolved(value);
     const count = countOf(value);
     const status =
@@ -434,6 +448,31 @@ async function runDebug(
 function seedStorage(values?: Record<string, unknown>) {
   if (!values) return;
   for (const [key, value] of Object.entries(values)) storage.set(key, value);
+}
+
+function validateSuggestions(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('getFilterSuggestions did not return an array');
+  }
+  for (const item of value) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      typeof (item as { value?: unknown }).value !== 'string' ||
+      !(item as { value: string }).value.trim()
+    ) {
+      throw new Error(
+        'getFilterSuggestions returned an entry with an invalid value',
+      );
+    }
+    const label = (item as { label?: unknown }).label;
+    if (label !== undefined && typeof label !== 'string') {
+      throw new Error(
+        'getFilterSuggestions returned an entry with an invalid label',
+      );
+    }
+  }
+  return value;
 }
 
 function validateResolved(value: unknown): string {

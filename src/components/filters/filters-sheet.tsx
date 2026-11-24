@@ -20,14 +20,18 @@ import { getValueFor } from '@/lib/filter-utils';
 
 import { CheckboxFilter } from './checkbox-filter';
 import { ExcludableCheckboxFilter } from './excludable-checkbox-filter';
+import { MultiTextFilter } from './multi-text-filter';
 import { PickerFilter } from './picker-filter';
 import { SwitchFilter } from './switch-filter';
 import { TextFilter } from './text-filter';
+import type { FilterSuggestionsFetcher } from './use-filter-autocomplete';
 
 const renderFilters = (
   filters: Filters | undefined,
   values: FilterToValues<Filters> | undefined,
   set: (key: string, v: AnyFilterValue) => void,
+  getSuggestions: FilterSuggestionsFetcher | undefined,
+  resetVersion: number,
 ): React.ReactNode => {
   if (!filters || !values) return null;
 
@@ -68,7 +72,21 @@ const renderFilters = (
                 filter={{ key, filter }}
                 set={newValue => set(key, newValue)}
                 value={value}
+                getSuggestions={getSuggestions}
                 key={`text_filter_${key}`}
+              />
+            );
+          }
+          case FilterTypes.MultiText: {
+            const value = getValueFor<typeof filter.type>(filter, values[key]);
+            return (
+              <MultiTextFilter
+                filter={{ key, filter }}
+                set={newValue => set(key, newValue)}
+                value={value}
+                getSuggestions={getSuggestions}
+                resetVersion={resetVersion}
+                key={`multi_text_filter_${key}`}
               />
             );
           }
@@ -108,6 +126,7 @@ type FiltersSheetProps = {
   setValues: React.Dispatch<
     React.SetStateAction<FilterToValues<Filters> | undefined>
   >;
+  getSuggestions?: FilterSuggestionsFetcher;
   refetch: () => void;
 };
 
@@ -117,9 +136,11 @@ export function FiltersSheet({
   values,
   setValues,
   filters,
+  getSuggestions,
   refetch,
 }: FiltersSheetProps) {
   const [filterElements, setFilterElements] = useState<ReactNode>(null);
+  const [resetVersion, setResetVersion] = useState(0);
 
   const setFilterWithKey = (key: string, newValue: AnyFilterValue) =>
     setValues(fValues =>
@@ -138,18 +159,28 @@ export function FiltersSheet({
     if (filters) {
       const resetValues: FilterToValues<typeof filters> = {};
       for (const fKey in filters) {
+        const defaultValue = filters[fKey].value;
         resetValues[fKey as keyof typeof resetValues] = {
           type: filters[fKey].type,
-          value: filters[fKey].value,
+          value: Array.isArray(defaultValue) ? [...defaultValue] : defaultValue,
         };
       }
       setValues(resetValues);
+      setResetVersion(version => version + 1);
     }
   };
 
   useEffect(() => {
-    setFilterElements(renderFilters(filters, values, setFilterWithKey));
-  }, [values, filters]);
+    setFilterElements(
+      renderFilters(
+        filters,
+        values,
+        setFilterWithKey,
+        getSuggestions,
+        resetVersion,
+      ),
+    );
+  }, [values, filters, getSuggestions, resetVersion]);
 
   const handleApply = () => {
     refetch();

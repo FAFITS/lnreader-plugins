@@ -33,6 +33,7 @@ const cases = [
     {},
     ['', false, [], null],
   ],
+  [FilterTypes.MultiText, ['default'], [], ['', false, {}, null]],
 ];
 
 for (const [type, defaultValue, selected, invalidValues] of cases) {

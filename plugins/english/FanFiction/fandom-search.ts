@@ -246,15 +246,22 @@ type IndexedFandom = {
 
 let cachedCatalog: IndexedFandom[] | undefined;
 
+// eslint-disable-next-line no-control-regex
+const NON_ASCII_REGEX = /[^\x00-\x7f]/;
+
 export function normalizeSearchText(text: string): string {
-  const folded =
-    typeof text.normalize === 'function'
-      ? text.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      : text;
+  let folded = text;
+  if (NON_ASCII_REGEX.test(text) && typeof text.normalize === 'function') {
+    try {
+      folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    } catch {
+      folded = text;
+    }
+  }
   return folded
     .toLowerCase()
     .replace(/['’]/g, '')
-    .replace(/[^a-z0-9\p{L}\p{N}]+/gu, ' ')
+    .replace(/[\s\-_/:.,!?()[\]{}&+~*|\\★⚡]+/g, ' ')
     .trim();
 }
 

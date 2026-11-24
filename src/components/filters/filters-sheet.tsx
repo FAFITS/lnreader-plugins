@@ -5,7 +5,7 @@ import {
   FilterTypes,
 } from '@libs/filterInputs';
 import { RotateCcw } from 'lucide-react';
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -139,7 +139,6 @@ export function FiltersSheet({
   getSuggestions,
   refetch,
 }: FiltersSheetProps) {
-  const [filterElements, setFilterElements] = useState<ReactNode>(null);
   const [resetVersion, setResetVersion] = useState(0);
 
   const setFilterWithKey = (key: string, newValue: AnyFilterValue) =>
@@ -170,17 +169,13 @@ export function FiltersSheet({
     }
   };
 
-  useEffect(() => {
-    setFilterElements(
-      renderFilters(
-        filters,
-        values,
-        setFilterWithKey,
-        getSuggestions,
-        resetVersion,
-      ),
-    );
-  }, [values, filters, getSuggestions, resetVersion]);
+  const filterElements = renderFilters(
+    filters,
+    values,
+    setFilterWithKey,
+    getSuggestions,
+    resetVersion,
+  );
 
   const handleApply = () => {
     refetch();

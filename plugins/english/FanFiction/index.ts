@@ -100,7 +100,7 @@ class FanFictionNet extends NekoriBasePlugin {
   name = 'FanFiction.Net';
   icon = 'icon.png';
   site = 'https://www.fanfiction.net';
-  version = '1.1.0';
+  version = '1.1.1';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 

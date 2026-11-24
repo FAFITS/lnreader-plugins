@@ -96,6 +96,7 @@ export function useFilterAutocomplete({
       setIsFocused(false);
     },
     onEdit: () => {
+      setIsFocused(true);
       setIsSuppressed(false);
     },
     dismiss: () => {

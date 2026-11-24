@@ -1,4 +1,4 @@
-import { FilterOption, Filters } from '@libs/filterInputs';
+import { Filters } from '@libs/filterInputs';
 
 import { Plugin } from '@/types/plugin';
 
@@ -14,13 +14,8 @@ type PluginOptionalProperties = Pick<
   | 'webStorageUtilized'
 >;
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions, @typescript-eslint/no-unsafe-declaration-merging
-interface NekoriBasePlugin extends PluginOptionalProperties {
-  getFilterSuggestions?(
-    filterKey: string,
-    query: string,
-  ): Promise<FilterOption[]>;
-}
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions, @typescript-eslint/no-empty-interface, @typescript-eslint/no-unsafe-declaration-merging
+interface NekoriBasePlugin extends PluginOptionalProperties {}
 
 /** API v1 source with a complete chapter list. Metadata is read from the exported instance. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging

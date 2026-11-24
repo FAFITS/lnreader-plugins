@@ -344,17 +344,15 @@ filters = {
 > `popularNovels` sẽ không được suy ra.
 
 Mọi filter đều có `label`, `type` và `value` (giá trị mặc định); các loại nhóm
-cần thêm `options`, còn `TextInput` và `MultiText` có thể bật thêm
-`autocomplete: true` kèm hàm `getFilterSuggestions(filterKey, query)`.
+cần thêm `options`.
 
-| `FilterTypes` | Giao diện | Kiểu `value` | Tuỳ chọn thêm |
-| --- | --- | --- | --- |
-| `TextInput` | Ô nhập văn bản | `string` | `autocomplete?: boolean` |
-| `MultiText` | Nhập nhiều giá trị dạng chip | `string[]` | `autocomplete?: boolean` |
-| `Picker` | Chọn một | `string` | `options` |
-| `Switch` | Công tắc | `boolean` | — |
-| `CheckboxGroup` | Chọn nhiều | `string[]` | `options` |
-| `ExcludableCheckboxGroup` | Chọn nhiều 3 trạng thái | `{ include?: string[]; exclude?: string[] }` | `options` |
+| `FilterTypes` | Giao diện | Kiểu `value` |
+| --- | --- | --- |
+| `TextInput` | Ô nhập văn bản | `string` |
+| `Picker` | Chọn một | `string` |
+| `Switch` | Công tắc | `boolean` |
+| `CheckboxGroup` | Chọn nhiều | `string[]` |
+| `ExcludableCheckboxGroup` | Chọn nhiều 3 trạng thái | `{ include?: string[]; exclude?: string[] }` |
 
 Đọc giá trị trong `popularNovels`:
 
@@ -362,14 +360,9 @@ cần thêm `options`, còn `TextInput` và `MultiText` có thể bật thêm
 options.filters.genre.value; // string[]
 options.filters.genre.type;  // FilterTypes.CheckboxGroup
 
-// MultiText
-const tags = options.filters.tags.value; // string[]
-
 // ExcludableCheckboxGroup
-const { include, exclude } = options.filters.statusTags.value;
+const { include, exclude } = options.filters.tags.value;
 ```
-
-Xem hướng dẫn chi tiết cách dùng `autocomplete`, `MultiText` và `getFilterSuggestions` tại [autocomplete-multitext-filters.md](autocomplete-multitext-filters.md).
 
 ## Plugin settings và storage
 

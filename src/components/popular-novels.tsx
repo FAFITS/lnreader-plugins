@@ -1,6 +1,6 @@
 import { Filters, FilterToValues } from '@libs/filterInputs';
 import { BookOpen, Filter } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { FiltersSheet } from '@/components/filters/filters-sheet';
 import { NovelCard } from '@/components/novel-card';
@@ -71,21 +71,13 @@ export default function PopularNovelsSection({
     if (plugin?.filters) {
       const filters: FilterToValues<typeof plugin.filters> = {};
       for (const fKey in plugin.filters) {
-        const defaultValue = plugin.filters[fKey].value;
         filters[fKey as keyof typeof filters] = {
           type: plugin.filters[fKey].type,
-          value: Array.isArray(defaultValue) ? [...defaultValue] : defaultValue,
+          value: plugin.filters[fKey].value,
         };
       }
       setFilterValues(filters);
     }
-  }, [plugin]);
-
-  const getFilterSuggestions = useMemo(() => {
-    const fn = plugin?.getFilterSuggestions;
-    if (typeof fn !== 'function') return undefined;
-    return (filterKey: string, query: string) =>
-      fn.call(plugin, filterKey, query);
   }, [plugin]);
 
   const handleParseNovel = (path: string) => {
@@ -220,7 +212,6 @@ export default function PopularNovelsSection({
         values={filterValues}
         filters={plugin?.filters}
         setValues={setFilterValues}
-        getSuggestions={getFilterSuggestions}
         refetch={() => fetchNovelsByIndex(1)}
       />
     </div>

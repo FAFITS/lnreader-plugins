@@ -341,18 +341,15 @@ filters = {
 > `popularNovels` are not inferred.
 
 Every filter takes `label`, `type` and `value` (the default); the group types
-also take `options`, while `TextInput` and `MultiText` support
-`autocomplete: true` paired with an optional
-`getFilterSuggestions(filterKey, query)` method returning `Promise<FilterOption[]>`.
+also take `options`.
 
-| `FilterTypes` | UI | `value` type | Extra fields |
-| --- | --- | --- | --- |
-| `TextInput` | Free text field | `string` | `autocomplete?: boolean` |
-| `MultiText` | Multi-value chip input | `string[]` | `autocomplete?: boolean` |
-| `Picker` | Single choice | `string` | `options` |
-| `Switch` | Toggle | `boolean` | — |
-| `CheckboxGroup` | Multi-select | `string[]` | `options` |
-| `ExcludableCheckboxGroup` | Tri-state multi-select | `{ include?: string[]; exclude?: string[] }` | `options` |
+| `FilterTypes` | UI | `value` type |
+| --- | --- | --- |
+| `TextInput` | Free text field | `string` |
+| `Picker` | Single choice | `string` |
+| `Switch` | Toggle | `boolean` |
+| `CheckboxGroup` | Multi-select | `string[]` |
+| `ExcludableCheckboxGroup` | Tri-state multi-select | `{ include?: string[]; exclude?: string[] }` |
 
 Reading values inside `popularNovels`:
 
@@ -360,14 +357,9 @@ Reading values inside `popularNovels`:
 options.filters.genre.value; // string[]
 options.filters.genre.type;  // FilterTypes.CheckboxGroup
 
-// MultiText
-const tags = options.filters.tags.value; // string[]
-
 // ExcludableCheckboxGroup
-const { include, exclude } = options.filters.statusTags.value;
+const { include, exclude } = options.filters.tags.value;
 ```
-
-See [autocomplete-multitext-filters.md](autocomplete-multitext-filters.md) for the detailed guide (Vietnamese) on `autocomplete`, `MultiText`, and `getFilterSuggestions`.
 
 ## Plugin settings and storage
 

@@ -45,20 +45,12 @@ const FANDOM_CATEGORIES: Record<string, string> = {
   tv: 'TV',
 };
 
-// The shared repository types predate the documented autocomplete API.
-// MultiText stores string[] just like CheckboxGroup; keep this bridge local.
-const MULTI_TEXT = 'MultiText' as FilterTypes.CheckboxGroup;
-type AutocompleteFilters = Record<
-  string,
-  Filters[string] & { autocomplete?: boolean }
->;
-
 class FanFictionNet extends NekoriBasePlugin {
   id = 'fanfiction.net';
   name = 'FanFiction.Net';
   icon = 'icon.png';
   site = 'https://www.fanfiction.net';
-  version = '1.0.3';
+  version = '1.0.4';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -88,11 +80,10 @@ class FanFictionNet extends NekoriBasePlugin {
       autocomplete: true,
     },
     crossovers: {
-      type: MULTI_TEXT,
+      type: FilterTypes.MultiText,
       label: 'Crossovers (e.g. Naruto or Naruto & Bleach; overrides Fandom)',
       value: [] as string[],
       autocomplete: true,
-      options: [],
     },
     sort: {
       type: FilterTypes.Picker,
@@ -200,40 +191,40 @@ class FanFictionNet extends NekoriBasePlugin {
         { label: 'Complete', value: '2' },
       ],
     },
-  } satisfies AutocompleteFilters;
+  } satisfies Filters;
 
-  async getFilterSuggestions(
+  getFilterSuggestions = async (
     filterKey: string,
     query: string,
-  ): Promise<FilterOption[]> {
+  ): Promise<FilterOption[]> => {
     if (filterKey !== 'fandom' && filterKey !== 'crossovers') return [];
 
     const input = query.trim().toLowerCase();
     if (input.length < 2) return [];
-    const terms = input.split(/\s+|[&+]/).filter(term => term && term !== 'x');
+    const terms = input
+      .replace(
+        /^(?:anime|books|cartoons|comics|games|misc|plays|movies|tv):\s*/,
+        '',
+      )
+      .split(/\s+|[&+]/)
+      .filter(term => term && term !== 'x');
     if (!terms.length) return [];
     const matches = (option: FilterOption) => {
-      const text = option.label.toLowerCase();
+      const text = `${option.label} ${option.value}`.toLowerCase();
       return terms.every(term => text.includes(term));
     };
     const isCrossover = filterKey === 'crossovers';
-    const catalog: FilterOption[] = [];
-    const categories = Object.entries(FANDOM_CATEGORIES);
-    // Bound concurrency and share in-flight requests across successive keystrokes.
-    for (let i = 0; i < categories.length; i += 3) {
-      const pages = await Promise.all(
-        categories
-          .slice(i, i + 3)
-          .map(([route, label]) =>
-            this.getSuggestionPage(
-              `${isCrossover ? '/crossovers' : ''}/${route}/`,
-              isCrossover ? 'crossovers' : 'fandom',
-              label,
-            ),
-          ),
-      );
-      catalog.push(...pages.flat());
-    }
+    // Load independent indexes together to fit the host's suggestion timeout.
+    // Cached promises also share these requests across successive keystrokes.
+    const catalog = await this.collectSuggestionPages(
+      Object.entries(FANDOM_CATEGORIES).map(([route, label]) =>
+        this.getSuggestionPage(
+          `${isCrossover ? '/crossovers' : ''}/${route}/`,
+          isCrossover ? 'crossovers' : 'fandom',
+          label,
+        ),
+      ),
+    );
     if (!isCrossover) return catalog.filter(matches).slice(0, 20);
 
     // Crossover indexes link to fandom directories; each directory contains
@@ -241,26 +232,48 @@ class FanFictionNet extends NekoriBasePlugin {
     const seeds = catalog
       .map(option => ({
         option,
-        score: terms.filter(term => option.label.toLowerCase().includes(term))
-          .length,
+        score:
+          terms.filter(term => option.label.toLowerCase().includes(term))
+            .length +
+          (terms.join(' ') ===
+          option.label.replace(/^[^:]+:\s*/, '').toLowerCase()
+            ? terms.length
+            : 0),
       }))
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
-    const pages = await Promise.all(
+    const pairs = await this.collectSuggestionPages(
       seeds.map(({ option }) =>
         this.getSuggestionPage(option.value, 'pairs', option.label),
       ),
     );
     const seen = new Set<string>();
-    return pages
-      .flat()
+    return pairs
       .filter(option => {
-        if (!matches(option) || seen.has(option.value)) return false;
-        seen.add(option.value);
+        // The same pair can be linked in reverse order by the two directories.
+        const ids = option.value.match(/\/(\d+)\/(\d+)\/$/);
+        const key = ids ? ids.slice(1).sort().join(':') : option.value;
+        if (!matches(option) || seen.has(key)) return false;
+        seen.add(key);
         return true;
       })
       .slice(0, 20);
+  };
+
+  private async collectSuggestionPages(
+    pages: Promise<FilterOption[]>[],
+  ): Promise<FilterOption[]> {
+    const results = await Promise.allSettled(pages);
+    const options: FilterOption[] = [];
+    let failure: unknown;
+    for (const result of results) {
+      if (result.status === 'fulfilled') options.push(...result.value);
+      else failure = result.reason;
+    }
+    // Preserve a real failure for the host's retry/backoff instead of caching [].
+    if (!options.length && failure) throw failure;
+    return options;
   }
 
   private async getSuggestionPage(
@@ -351,7 +364,13 @@ class FanFictionNet extends NekoriBasePlugin {
   ): Promise<string> {
     const input = value.trim();
     let path = input;
-    if (!input.includes('/')) {
+    const isPath =
+      /^\/?(?:anime|book|cartoon|comic|game|misc|play|movie|tv)\/[^/]+\/?$/.test(
+        input,
+      ) ||
+      /^\/?[^/]+[-_]Crossovers\/\d+\/\d+\/?$/i.test(input) ||
+      /^\/?j\/\d+\/\d+\/\d+\/?$/.test(input);
+    if (!isPath) {
       const suggestions = await this.getFilterSuggestions(filterKey, input);
       const key = input.toLowerCase();
       const match =

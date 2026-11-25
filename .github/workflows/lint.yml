@@ -1,0 +1,43 @@
+name: Lint Check
+
+on:
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-check:
+    name: Check Code Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Dependencies
+        # --ignore-scripts skips Electron's postinstall binary download; linting
+        # does not need it.
+        run: npm install --ignore-scripts
+
+      - name: Check Code Linting
+        run: npm run lint
+
+      - name: Check App TypeScript
+        run: npm run type-check:app
+
+      - name: Check Plugin TypeScript
+        run: npm run type-check:plugins
+
+      - name: Check Plugin WebView TypeScript
+        run: npm run type-check:webviews
+
+      - name: Check Electron TypeScript
+        run: npm run type-check:electron

@@ -20,14 +20,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
-      - name: Install Prettier
-        run: |
-          rm package.json
-          rm package-lock.json
-          npm init -y
-          npm install prettier@3.2.5
+      - name: Install Dependencies
+        # --ignore-scripts skips Electron's postinstall binary download; the
+        # format check does not need it.
+        run: npm install --ignore-scripts
 
       - name: Check Code Formatting
-        run: npx prettier --check "./src/**/*.{ts,tsx,js,css}"
+        run: npx prettier --check "./**/*.{ts,tsx,js,css}"

@@ -8,6 +8,13 @@ on:
     paths:
       - 'plugins/**'
       - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/build-plugin-manifest.js'
+      - 'scripts/build-plugins.js'
+      - 'scripts/build-webviews.js'
+      - 'scripts/plugin-build-utils.js'
+      - 'src/lib/plugin-asset-paths.js'
       - 'scripts/publish-plugins.sh'
       - '.github/workflows/publish-plugins.yml'
 
@@ -19,18 +26,16 @@ jobs:
   publish:
     name: Publish Plugins
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.REPO_SCOPED_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.REPO_SCOPED_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install Dependencies
         run: npm install --omit=dev --ignore-scripts
@@ -41,11 +46,11 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
       - name: Publish Plugins (Main Repository)
-        if: github.repository == 'LNReader/lnreader-plugins'
+        if: github.repository == 'Yuneko-dev/Nekori-plugins'
         run: npm run publish:plugins 2>> $GITHUB_STEP_SUMMARY
         shell: bash
 
       - name: Publish Plugins (Fork - All Branches)
-        if: github.repository != 'LNReader/lnreader-plugins'
+        if: github.repository != 'Yuneko-dev/Nekori-plugins'
         run: npm run publish:plugins -- --all-branches
         shell: bash

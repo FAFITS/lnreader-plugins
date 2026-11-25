@@ -8,6 +8,12 @@ MultiText with live AO3 autocomplete. Each chip is a tag name. Included tags mus
 all match; any excluded tag removes a work. Exact names can also be entered
 manually when autocomplete is unavailable.
 
+Autocomplete requests explicitly ask for JSON and identify themselves as AJAX;
+AO3's JSON-only endpoint otherwise treats browser-style Accept headers as HTML.
+If Cloudflare blocks requests, open AO3 in the app's WebView and complete the
+challenge before retrying. Requests use the host's shared cookie jar; failed
+autocomplete requests are not cached.
+
 Works have no standard cover image on AO3, so the source leaves covers unset.
 Reader content includes the chapter body and inline images, without summaries,
 author notes, navigation, or comments. Requests use `view_adult=true`; works

@@ -20,7 +20,7 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
   name = 'Archive of Our Own (AO3)';
   icon = 'icon.png';
   site = 'https://archiveofourown.org';
-  version = '2.0.0';
+  version = '2.0.1';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.MIXED;
   filters = filters;
@@ -59,10 +59,13 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
     return match[0];
   }
 
-  private async request(path: string): Promise<string> {
+  private async request(
+    path: string,
+    headers?: Record<string, string>,
+  ): Promise<string> {
     const url = `${this.site}${path}`;
     const response = checkResponse(
-      await fetchApi(url, { headers: this.headers }),
+      await fetchApi(url, { headers: { ...this.headers, ...headers } }),
     );
     const body = await response.text();
     assertNoChallenge(body, url, response.url);
@@ -124,7 +127,14 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
     term: string,
   ): Promise<FilterOption[]> {
     const body = await this.request(
-      `/autocomplete/${route}?${new URLSearchParams({ term })}`,
+      `/autocomplete/${route}?${new URLSearchParams({ term, format: 'json' })}`,
+      {
+        // Rails treats the document Accept header (with */*) as HTML and
+        // redirects this JSON-only endpoint to /404 unless the format is set.
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: `${this.site}/works/search`,
+      },
     );
     let data: unknown;
     try {

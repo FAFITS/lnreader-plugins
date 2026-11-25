@@ -214,9 +214,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
   private getRequestDelay(): number {
     const raw = storage.get('syosetuOrgRequestDelay');
-    const ms = Number(
-      raw ?? this.pluginSettings.syosetuOrgRequestDelay.value,
-    );
+    const ms = Number(raw ?? this.pluginSettings.syosetuOrgRequestDelay.value);
     return Number.isFinite(ms) && ms >= 0 ? ms : 1000;
   }
 
@@ -468,7 +466,10 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
         };
       }
 
-      if ((response.status === 429 || response.status === 503) && attempt === 0) {
+      if (
+        (response.status === 429 || response.status === 503) &&
+        attempt === 0
+      ) {
         const retryAfter = Number(response.headers.get('Retry-After'));
         const waitMs =
           Number.isFinite(retryAfter) && retryAfter >= 0
@@ -524,9 +525,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const seen = new Set<string>();
 
     const pushCandidate = (anchor: CheerioSelection) => {
-      if (
-        anchor.closest('#header, #footer, #nav2, .topicPath').length > 0
-      ) {
+      if (anchor.closest('#header, #footer, #nav2, .topicPath').length > 0) {
         return;
       }
 
@@ -600,10 +599,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     return novels;
   }
 
-  private hasSearchPageContent(
-    $: CheerioAPI,
-    pageNo: number,
-  ): boolean {
+  private hasSearchPageContent($: CheerioAPI, pageNo: number): boolean {
     if (pageNo <= 1) return true;
 
     const activePageText = $('div.paging strong').first().text().trim();
@@ -612,8 +608,8 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     }
 
     const hasPagination =
-      $('div.paging a, a[href*="page="], a[rel="next"], a[rel="prev"]')
-        .length > 0;
+      $('div.paging a, a[href*="page="], a[rel="next"], a[rel="prev"]').length >
+      0;
     if (!hasPagination) return false;
 
     if (pageNo > 2) {
@@ -632,7 +628,9 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     params: Record<string, string>,
     pageNo: number,
   ): Promise<Plugin.NovelItem[]> {
-    const res = await this.fetchPage(`${BASE_URL}/search/?${encodeQuery(params)}`);
+    const res = await this.fetchPage(
+      `${BASE_URL}/search/?${encodeQuery(params)}`,
+    );
     this.assertPageReady(res);
 
     const $ = loadCheerio(res.html);
@@ -710,10 +708,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     );
   }
 
-  private extractTextWithBreaks(
-    $: CheerioAPI,
-    el: CheerioSelection,
-  ): string {
+  private extractTextWithBreaks($: CheerioAPI, el: CheerioSelection): string {
     const clone = el.clone();
     clone.find('script, style, hr').remove();
     clone.find('br').replaceWith('\n');
@@ -816,7 +811,9 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
       const link = $item
         .find('a.episode-list__link, a[href]')
-        .filter((_i, a) => Boolean(this.extractEpisodeId($(a).attr('href'), novelId)))
+        .filter((_i, a) =>
+          Boolean(this.extractEpisodeId($(a).attr('href'), novelId)),
+        )
         .first();
       const chapterId = this.extractEpisodeId(link.attr('href'), novelId);
       if (!chapterId) return;
@@ -828,7 +825,9 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
 
       const timeEl = link.find('time').first();
       const releaseTime = normalizeDate(
-        timeEl.attr('datetime') || timeEl.text() || link.find('.episode-list__date').text(),
+        timeEl.attr('datetime') ||
+          timeEl.text() ||
+          link.find('.episode-list__date').text(),
       );
 
       this.pushChapter(
@@ -882,8 +881,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
           const colspanCell = cells.filter('[colspan]').first();
           if (colspanCell.length > 0 && $row.find('a[href]').length === 0) {
             const strongText = (
-              colspanCell.find('strong, b').first().text() ||
-              colspanCell.text()
+              colspanCell.find('strong, b').first().text() || colspanCell.text()
             )
               .replace(/\s+/g, ' ')
               .trim();
@@ -897,9 +895,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
         const name = this.cleanAnchorText($, link);
         const timeEl = $row.find('time').first();
         const dateCellText =
-          timeEl.attr('datetime') ||
-          timeEl.text() ||
-          cells.last().text();
+          timeEl.attr('datetime') || timeEl.text() || cells.last().text();
         const releaseTime = normalizeDate(dateCellText);
 
         this.pushChapter(
@@ -1053,8 +1049,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
   ): Promise<{ res: PageFetchResult; isR18: boolean }> {
     const canonicalPath = this.formatNovelPath(ref.id, ref.isR18);
     let res = await this.fetchPage(canonicalPath);
-    let isR18 =
-      ref.isR18 || /^https?:\/\/h\.syosetu\.org/i.test(res.finalUrl);
+    let isR18 = ref.isR18 || /^https?:\/\/h\.syosetu\.org/i.test(res.finalUrl);
 
     if (!isR18 && this.getSettingBool('syosetuOrgAllowR18', true)) {
       const mentionsR18Host =
@@ -1087,7 +1082,11 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
     const resolvedPath = this.formatNovelPath(ref.id, isR18);
     const $ = loadCheerio(res.html);
     const maind = $('#maind');
-    const root = maind.length ? maind : $('#main').length ? $('#main') : $('body');
+    const root = maind.length
+      ? maind
+      : $('#main').length
+        ? $('#main')
+        : $('body');
     const headerScope = root.find('.ss').first().length
       ? root.find('.ss').first()
       : root;
@@ -1099,10 +1098,7 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
         .first()
         .text()
         .trim() ||
-      $('#pagetitle a[href="./"], #maind a[href="./"]')
-        .first()
-        .text()
-        .trim() ||
+      $('#pagetitle a[href="./"], #maind a[href="./"]').first().text().trim() ||
       root.find('.ss p span a[href="./"]').first().text().trim() ||
       $('#pagetitle h1, #pagetitle .title, h1').first().text().trim() ||
       $('title')
@@ -1112,7 +1108,11 @@ class SyosetuOrgPlugin extends NekoriBasePlugin {
       `Hameln ${ref.id}`;
 
     let author =
-      root.find('[itemprop="author"] [itemprop="name"]').first().text().trim() ||
+      root
+        .find('[itemprop="author"] [itemprop="name"]')
+        .first()
+        .text()
+        .trim() ||
       root.find('[itemprop="author"] a').first().text().trim() ||
       root.find('[itemprop="author"]').first().text().trim() ||
       root

@@ -50,7 +50,7 @@ class FanFictionNet extends NekoriBasePlugin {
   name = 'FanFiction.Net';
   icon = 'icon.png';
   site = 'https://www.fanfiction.net';
-  version = '1.0.4';
+  version = '1.0.5';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -68,20 +68,9 @@ class FanFictionNet extends NekoriBasePlugin {
   >();
 
   filters = {
-    customFandom: {
-      type: FilterTypes.TextInput,
-      label: 'Custom Fandom / Crossover Path (overrides other fandom filters)',
-      value: '',
-    },
-    fandom: {
-      type: FilterTypes.TextInput,
-      label: 'Fandom / Category (type at least 2 characters)',
-      value: '/book/Harry-Potter/',
-      autocomplete: true,
-    },
-    crossovers: {
+    fandoms: {
       type: FilterTypes.MultiText,
-      label: 'Crossovers (e.g. Naruto or Naruto & Bleach; overrides Fandom)',
+      label: 'Fandoms / Crossovers (Naruto, Naruto & Bleach, or a site path)',
       value: [] as string[],
       autocomplete: true,
     },
@@ -197,11 +186,15 @@ class FanFictionNet extends NekoriBasePlugin {
     filterKey: string,
     query: string,
   ): Promise<FilterOption[]> => {
-    if (filterKey !== 'fandom' && filterKey !== 'crossovers') return [];
+    if (filterKey !== 'fandoms') return [];
 
     const input = query.trim().toLowerCase();
-    if (input.length < 2) return [];
+    const directPath = this.normalizeFandomPath(query);
+    if (directPath) return [{ label: query.trim(), value: directPath }];
+    if (!input) return [];
+    const isCrossover = /[&+]|\s+x\s+|\bcrossovers?\b/i.test(input);
     const terms = input
+      .replace(/\bcrossovers?\b\s*:?/g, '')
       .replace(
         /^(?:anime|books|cartoons|comics|games|misc|plays|movies|tv):\s*/,
         '',
@@ -213,7 +206,6 @@ class FanFictionNet extends NekoriBasePlugin {
       const text = `${option.label} ${option.value}`.toLowerCase();
       return terms.every(term => text.includes(term));
     };
-    const isCrossover = filterKey === 'crossovers';
     // Load independent indexes together to fit the host's suggestion timeout.
     // Cached promises also share these requests across successive keystrokes.
     const catalog = await this.collectSuggestionPages(
@@ -224,6 +216,7 @@ class FanFictionNet extends NekoriBasePlugin {
           label,
         ),
       ),
+      2800,
     );
     if (!isCrossover) return catalog.filter(matches).slice(0, 20);
 
@@ -247,6 +240,7 @@ class FanFictionNet extends NekoriBasePlugin {
       seeds.map(({ option }) =>
         this.getSuggestionPage(option.value, 'pairs', option.label),
       ),
+      1400,
     );
     const seen = new Set<string>();
     return pairs
@@ -263,17 +257,40 @@ class FanFictionNet extends NekoriBasePlugin {
 
   private async collectSuggestionPages(
     pages: Promise<FilterOption[]>[],
+    timeoutMs: number,
   ): Promise<FilterOption[]> {
-    const results = await Promise.allSettled(pages);
-    const options: FilterOption[] = [];
+    if (!pages.length) return [];
+    const options: FilterOption[][] = [];
     let failure: unknown;
-    for (const result of results) {
-      if (result.status === 'fulfilled') options.push(...result.value);
-      else failure = result.reason;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pending = pages.map((page, index) =>
+      page.then(
+        result => {
+          options[index] = result;
+        },
+        error => {
+          failure = error;
+        },
+      ),
+    );
+    try {
+      await Promise.race([
+        Promise.all(pending),
+        new Promise<void>(resolve => {
+          timer = setTimeout(resolve, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
-    // Preserve a real failure for the host's retry/backoff instead of caching [].
-    if (!options.length && failure) throw failure;
-    return options;
+    const collected = options.flat();
+    if (!collected.length) {
+      throw (
+        failure ||
+        new Error('FanFiction suggestions timed out. Please try again.')
+      );
+    }
+    return collected;
   }
 
   private async getSuggestionPage(
@@ -322,14 +339,10 @@ class FanFictionNet extends NekoriBasePlugin {
       const name = anchor.text().trim();
       const href = anchor.attr('href');
       if (!name || !href) return;
-      let url: URL;
-      try {
-        url = new URL(href, `${this.site}${path}`);
-      } catch {
-        return;
-      }
-      if (url.origin !== this.site) return;
-      const value = `${url.pathname.replace(/\/$/, '')}/`;
+      // Hermes hosts may not provide the browser's URL constructor. Do not
+      // silently discard every anchor when that global is unavailable.
+      const value = this.normalizeFandomPath(href, true);
+      if (!value) return;
       const isFandom =
         kind === 'fandom' &&
         value.startsWith(path) &&
@@ -358,36 +371,48 @@ class FanFictionNet extends NekoriBasePlugin {
     return options;
   }
 
-  private async resolveFandomPath(
+  private normalizeFandomPath(
     value: string,
-    filterKey: string,
-  ): Promise<string> {
-    const input = value.trim();
-    let path = input;
-    const isPath =
-      /^\/?(?:anime|book|cartoon|comic|game|misc|play|movie|tv)\/[^/]+\/?$/.test(
-        input,
-      ) ||
-      /^\/?[^/]+[-_]Crossovers\/\d+\/\d+\/?$/i.test(input) ||
-      /^\/?j\/\d+\/\d+\/\d+\/?$/.test(input);
-    if (!isPath) {
-      const suggestions = await this.getFilterSuggestions(filterKey, input);
-      const key = input.toLowerCase();
-      const match =
-        suggestions.find(
-          option =>
-            option.label.toLowerCase() === key ||
-            option.label.replace(/^[^:]+:\s*/, '').toLowerCase() === key,
-        ) || (suggestions.length === 1 ? suggestions[0] : undefined);
-      if (!match)
-        throw new Error(
-          'Select a fandom/crossover suggestion or enter its FanFiction path.',
-        );
-      path = match.value;
+    allowDirectory = false,
+  ): string | undefined {
+    let path = value.trim();
+    if (/^(?:https?:)?\/\//i.test(path)) {
+      const absolute = path.match(
+        /^(?:https?:)?\/\/(?:www\.|m\.)?fanfiction\.net(\/[^?#]*)?(?:[?#].*)?$/i,
+      );
+      if (!absolute) return undefined;
+      path = absolute[1] || '/';
     }
-    if (!path.startsWith('/')) path = `/${path}`;
-    if (!path.endsWith('/')) path = `${path}/`;
-    return path;
+    path = `/${path.replace(/^\/+/, '').split(/[?#]/)[0].replace(/\/+$/, '')}/`;
+    if (
+      /^\/(?:anime|book|cartoon|comic|game|misc|play|movie|tv)\/[^/]+\/$/.test(
+        path,
+      ) ||
+      /^\/[^/]+[-_]Crossovers\/\d+\/\d+\/$/i.test(path) ||
+      /^\/j\/\d+\/\d+\/\d+\/$/.test(path) ||
+      (allowDirectory && /^\/crossovers\/[^/]+\/\d+\/$/.test(path))
+    )
+      return path;
+    return undefined;
+  }
+
+  private async resolveFandomPath(value: string): Promise<string> {
+    const input = value.trim();
+    const directPath = this.normalizeFandomPath(input);
+    if (directPath) return directPath;
+    const suggestions = await this.getFilterSuggestions('fandoms', input);
+    const key = input.toLowerCase();
+    const match =
+      suggestions.find(
+        option =>
+          option.label.toLowerCase() === key ||
+          option.label.replace(/^[^:]+:\s*/, '').toLowerCase() === key,
+      ) || (suggestions.length === 1 ? suggestions[0] : undefined);
+    if (!match)
+      throw new Error(
+        'Select a fandom/crossover suggestion or enter its FanFiction path.',
+      );
+    return match.value;
   }
 
   private extractCoverUrl(rawUrl?: string): string | undefined {
@@ -444,25 +469,12 @@ class FanFictionNet extends NekoriBasePlugin {
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
     const filters = options?.filters;
-    const customPath = filters?.customFandom?.value?.trim();
-    const crossovers = filters?.crossovers?.value?.filter(value =>
-      value.trim(),
-    );
-    const paths = customPath
-      ? [customPath]
-      : crossovers?.length
-        ? crossovers
-        : [filters?.fandom?.value || '/book/Harry-Potter/'];
+    const selected =
+      filters?.fandoms?.value?.filter(value => value.trim()) || [];
+    const paths = selected.length ? selected : ['/book/Harry-Potter/'];
     const fandomPaths = [
       ...new Set(
-        await Promise.all(
-          paths.map(path =>
-            this.resolveFandomPath(
-              path,
-              !customPath && crossovers?.length ? 'crossovers' : 'fandom',
-            ),
-          ),
-        ),
+        await Promise.all(paths.map(path => this.resolveFandomPath(path))),
       ),
     ];
 

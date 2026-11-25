@@ -30,7 +30,7 @@ class QidianPlugin extends NekoriBasePlugin {
   name = 'Qidian';
   icon = 'icon.svg';
   site = 'https://www.qidian.com';
-  version = '1.0.3';
+  version = '1.0.2';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 

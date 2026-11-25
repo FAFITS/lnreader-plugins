@@ -1,10 +1,9 @@
-import { defaultCover } from '@libs/defaultCover';
 import { fetchApi } from '@libs/fetch';
 import { type Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
 import { NekoriBasePlugin } from '@nekori/plugin';
 import { ContentType, ContentWarning } from '@nekori/pluginMetadata';
-import { type Cheerio, load as loadCheerio } from 'cheerio';
+import { load as loadCheerio } from 'cheerio';
 
 import { Plugin } from '@/types/plugin';
 
@@ -164,7 +163,7 @@ class Ciweimao extends NekoriBasePlugin {
   name = 'Ciweimao';
   icon = 'icon.svg';
   site = 'https://www.ciweimao.com';
-  version = '1.0.2';
+  version = '1.0.4';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
   imageRequestInit = {
@@ -290,7 +289,7 @@ class Ciweimao extends NekoriBasePlugin {
       const cover =
         rawCover && !rawCover.includes('/resources/images/cover.jpg')
           ? new URL(rawCover, this.site).href
-          : defaultCover;
+          : undefined;
 
       seen.add(path);
       novels.push({ name, path, cover });
@@ -411,69 +410,43 @@ class Ciweimao extends NekoriBasePlugin {
     const cover =
       coverUrl && !coverUrl.includes('/resources/images/cover.jpg')
         ? new URL(coverUrl, this.site).href
-        : defaultCover;
+        : undefined;
     const intro = info.find('.intro').text() || $('.book-info').text();
     const status = intro.includes('已完结')
       ? NovelStatus.Completed
       : NovelStatus.Ongoing;
 
+    const $chapters =
+      $('#J_ReadAll').length > 0
+        ? await this.fetchDocument(
+            `${this.site}/chapter/get_chapter_list_in_chapter_detail?book_id=${bookId}&chapter_id=0&orderby=0`,
+          )
+        : $;
+
     const chapters: Plugin.ChapterItem[] = [];
     const chapterPaths = new Set<string>();
-    let chapterIndex = 0;
-
-    const addChapter = ($link: Cheerio<any>, page?: string) => {
+    $chapters(
+      '.catalogue-list a[href*="/chapter/"], .book-chapter-box a[href*="/chapter/"]',
+    ).each((index, element) => {
+      const $link = $chapters(element);
       const href = $link.attr('href');
       const chapterId = href?.match(/\/chapter\/(\d+)/)?.[1];
-      const chapterName = $link.text().replace(/\s+/g, ' ').trim();
-      if (!chapterId || !chapterName) return;
+      const rawName = $link.text().trim();
+      if (!chapterId || !rawName) return;
 
       const chapterPath = `/chapter/${chapterId}`;
       if (chapterPaths.has(chapterPath)) return;
       chapterPaths.add(chapterPath);
 
-      const number = chapterName.match(/第\s*(\d+)\s*章/);
-      const chapter: Plugin.ChapterItem = {
+      const isLocked = $link.find('.icon-lock').length > 0;
+      const chapterName = isLocked ? `🔒 ${rawName}` : rawName;
+      const number = rawName.match(/第\s*(\d+)\s*章/);
+      chapters.push({
         name: chapterName,
         path: chapterPath,
-        chapterNumber: number ? Number(number[1]) : chapterIndex + 1,
-      };
-      if (page) chapter.page = page;
-      chapters.push(chapter);
-      chapterIndex++;
-    };
-
-    const catalogue = $('.cnt-box.catalogue').first();
-    const headings = catalogue
-      .find('.sub-tit')
-      .filter((_, element) => Boolean($(element).text().trim()));
-    let sectionCount = 0;
-    headings.each((_, headingElement) => {
-      const $heading = $(headingElement);
-      const name = $heading.text().replace(/\s+/g, ' ').trim();
-      if (!name) return;
-
-      const $sectionLinks = $heading
-        .nextUntil('.sub-tit')
-        .find('a[href*="/chapter/"]');
-      if ($sectionLinks.length > 0) sectionCount++;
-    });
-
-    if (sectionCount > 1) {
-      headings.each((_, headingElement) => {
-        const $heading = $(headingElement);
-        const name = $heading.text().replace(/\s+/g, ' ').trim();
-        if (!name) return;
-
-        $heading
-          .nextUntil('.sub-tit')
-          .find('a[href*="/chapter/"]')
-          .each((_, linkElement) => addChapter($(linkElement), name));
+        chapterNumber: number ? Number(number[1]) : index + 1,
       });
-    } else {
-      $(
-        '.catalogue-list a[href*="/chapter/"], .book-chapter-box a[href*="/chapter/"]',
-      ).each((_, linkElement) => addChapter($(linkElement)));
-    }
+    });
 
     return {
       name,
@@ -510,7 +483,41 @@ class Ciweimao extends NekoriBasePlugin {
       );
     }
 
-    $content.find('script, style, .num-link, span').remove();
+    $content.find('script, style, .num-link, span').each((_, element) => {
+      const $element = $(element);
+      if ($element.find('img').length > 0) {
+        $element.replaceWith($element.contents());
+      } else {
+        $element.remove();
+      }
+    });
+
+    $content.find('img').each((_, element) => {
+      const $image = $(element);
+      const imageSource = [
+        $image.attr('data-original'),
+        $image.attr('data-src'),
+        $image.attr('data-lazy-src'),
+        $image.attr('data-echo'),
+        $image.attr('src'),
+        $image.attr('data-srcset')?.split(',')[0]?.trim().split(/\s+/)[0],
+      ].find(
+        source =>
+          source &&
+          !/^data:image\/(?:gif|png);base64,/i.test(source) &&
+          source !== 'about:blank',
+      );
+
+      if (imageSource) {
+        try {
+          $image.attr('src', new URL(imageSource, this.site).href);
+        } catch {
+          throw new Error(`Invalid Ciweimao chapter image URL: ${imageSource}`);
+        }
+      }
+      $image.attr('loading', 'lazy');
+    });
+
     $content.find('p.chapter').each((_, element) => {
       const $paragraph = $(element);
       const html = $paragraph.html();

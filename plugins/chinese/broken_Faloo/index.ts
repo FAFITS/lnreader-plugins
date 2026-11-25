@@ -1,4 +1,3 @@
-import { defaultCover } from '@libs/defaultCover';
 import { fetchApi } from '@libs/fetch';
 import { type Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
@@ -178,10 +177,9 @@ class FalooPlugin extends NekoriBasePlugin {
     return `${PC_BASE}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
   }
 
-  private normalizeCover(raw: string | undefined): string {
-    if (!raw) return defaultCover;
-    const url = this.normalizePcUrl(raw);
-    return url || defaultCover;
+  private normalizeCover(raw: string | undefined): string | undefined {
+    if (!raw) return undefined;
+    return this.normalizePcUrl(raw) || undefined;
   }
 
   private parseNovelId(path: string): string | undefined {

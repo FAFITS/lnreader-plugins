@@ -1,14 +1,11 @@
-import { defaultCover } from '@libs/defaultCover';
 import { fetchApi } from '@libs/fetch';
-import { Filters, FilterTypes } from '@libs/filterInputs';
+import { FilterOption, Filters, FilterTypes } from '@libs/filterInputs';
 import { NovelStatus } from '@libs/novelStatus';
 import { NekoriBasePlugin } from '@nekori/plugin';
 import { ContentType, ContentWarning } from '@nekori/pluginMetadata';
 import { CheerioAPI, load as loadCheerio } from 'cheerio';
 
 import { Plugin } from '@/types/plugin';
-
-import { FANDOM_OPTIONS } from './fandom-options';
 
 const GENRE_OPTIONS = [
   { label: 'Adventure', value: '6' },
@@ -36,21 +33,32 @@ const GENRE_OPTIONS = [
 
 const KNOWN_GENRES = new Set<string>(GENRE_OPTIONS.map(({ label }) => label));
 
-function uniqueFandomOptions(options: { label: string; value: string }[]) {
-  const seen = new Set<string>();
-  return options.filter(option => {
-    if (seen.has(option.value)) return false;
-    seen.add(option.value);
-    return true;
-  });
-}
+const FANDOM_CATEGORIES: Record<string, string> = {
+  anime: 'Anime',
+  book: 'Books',
+  cartoon: 'Cartoons',
+  comic: 'Comics',
+  game: 'Games',
+  misc: 'Misc',
+  play: 'Plays',
+  movie: 'Movies',
+  tv: 'TV',
+};
+
+// The shared repository types predate the documented autocomplete API.
+// MultiText stores string[] just like CheckboxGroup; keep this bridge local.
+const MULTI_TEXT = 'MultiText' as FilterTypes.CheckboxGroup;
+type AutocompleteFilters = Record<
+  string,
+  Filters[string] & { autocomplete?: boolean }
+>;
 
 class FanFictionNet extends NekoriBasePlugin {
   id = 'fanfiction.net';
   name = 'FanFiction.Net';
   icon = 'icon.png';
   site = 'https://www.fanfiction.net';
-  version = '1.0.1';
+  version = '1.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -62,245 +70,29 @@ class FanFictionNet extends NekoriBasePlugin {
     'Accept-Language': 'en-US,en;q=0.9',
   };
 
+  private readonly suggestionPages = new Map<
+    string,
+    { expires: number; options: Promise<FilterOption[]> }
+  >();
+
   filters = {
     customFandom: {
       type: FilterTypes.TextInput,
-      label: 'Custom Fandom / Crossover Path (e.g. /anime/Naruto/)',
+      label: 'Custom Fandom / Crossover Path (overrides other fandom filters)',
       value: '',
     },
     fandom: {
-      type: FilterTypes.Picker,
-      label: 'Fandom / Category',
+      type: FilterTypes.TextInput,
+      label: 'Fandom / Category (type at least 2 characters)',
       value: '/book/Harry-Potter/',
-      options: uniqueFandomOptions([
-        // --- GENERAL ---
-        { label: '★ Just In: All Categories', value: '/j/0/0/0/' },
-
-        // --- BOOKS ---
-        { label: 'Books: Harry Potter (840K+)', value: '/book/Harry-Potter/' },
-        { label: 'Books: Twilight (220K+)', value: '/book/Twilight/' },
-        {
-          label: 'Books: Percy Jackson (78K+)',
-          value: '/book/Percy-Jackson-and-the-Olympians/',
-        },
-        {
-          label: 'Books: Lord of the Rings (57K+)',
-          value: '/book/Lord-of-the-Rings/',
-        },
-        { label: 'Books: Hunger Games (44K+)', value: '/book/Hunger-Games/' },
-        { label: 'Books: Warriors (25K+)', value: '/book/Warriors/' },
-        {
-          label: 'Books: A Song of Ice and Fire / GoT',
-          value: '/book/A-song-of-Ice-and-Fire/',
-        },
-        {
-          label: 'Books: Mortal Instruments',
-          value: '/book/Mortal-Instruments/',
-        },
-        {
-          label: 'Books: Chronicles of Narnia',
-          value: '/book/Chronicles-of-Narnia/',
-        },
-
-        // --- ANIME / MANGA ---
-        { label: 'Anime: Naruto (444K+)', value: '/anime/Naruto/' },
-        { label: 'Anime: Inuyasha (122K+)', value: '/anime/InuYasha/' },
-        {
-          label: 'Anime: Hetalia (116K+)',
-          value: '/anime/Hetalia-Axis-Powers/',
-        },
-        { label: 'Anime: Bleach (85K+)', value: '/anime/Bleach/' },
-        { label: 'Anime: Fairy Tail (70K+)', value: '/anime/Fairy-Tail/' },
-        { label: 'Anime: Yu-Gi-Oh (68K+)', value: '/anime/Yu-Gi-Oh/' },
-        {
-          label: 'Anime: Dragon Ball Z (55K+)',
-          value: '/anime/Dragon-Ball-Z/',
-        },
-        {
-          label: 'Anime: Fullmetal Alchemist (50K+)',
-          value: '/anime/Fullmetal-Alchemist/',
-        },
-        { label: 'Anime: Digimon (48K+)', value: '/anime/Digimon/' },
-        { label: 'Anime: Sailor Moon (46K+)', value: '/anime/Sailor-Moon/' },
-        { label: 'Anime: One Piece (46K+)', value: '/anime/One-Piece/' },
-        {
-          label: 'Anime: Gundam Wing/AC (42K+)',
-          value: '/anime/Gundam-Wing-AC/',
-        },
-        { label: 'Anime: RWBY (35K+)', value: '/anime/RWBY/' },
-        { label: 'Anime: Death Note (35K+)', value: '/anime/Death-Note/' },
-        {
-          label: 'Anime: Katekyo Hitman Reborn! (34K+)',
-          value: '/anime/Katekyo-Hitman-Reborn/',
-        },
-        {
-          label: 'Anime: My Hero Academia (31K+)',
-          value:
-            '/anime/My-Hero-Academia-%E5%83%95%E3%81%AE%E3%83%98%E3%83%BC%E3%83%AD%E3%83%BC%E3%82%A2%E3%82%AB%E3%83%87%E3%83%9F%E3%82%A2/',
-        },
-        {
-          label: 'Anime: Attack on Titan (30K+)',
-          value:
-            '/anime/Attack-on-Titan-%E9%80%B2%E6%92%83%E3%81%AE%E5%B7%A8%E4%BA%BA/',
-        },
-        {
-          label: 'Anime: Fate/stay night (8.7K+)',
-          value: '/anime/Fate-stay-night/',
-        },
-        { label: 'Anime: Hunter X Hunter', value: '/anime/Hunter-X-Hunter/' },
-        { label: 'Anime: Code Geass', value: '/anime/Code-Geass/' },
-
-        // --- MOVIES ---
-        { label: 'Movies: Star Wars (62K+)', value: '/movie/Star-Wars/' },
-        {
-          label: 'Movies: Avengers / Marvel (39K+)',
-          value: '/movie/Avengers/',
-        },
-        {
-          label: 'Movies: Pirates of the Caribbean',
-          value: '/movie/Pirates-of-the-Caribbean/',
-        },
-        {
-          label: 'Movies: How to Train Your Dragon',
-          value: '/movie/How-to-Train-Your-Dragon/',
-        },
-        {
-          label: 'Movies: High School Musical',
-          value: '/movie/High-School-Musical/',
-        },
-        { label: 'Movies: Transformers', value: '/movie/Transformers/' },
-
-        // --- TV SHOWS ---
-        { label: 'TV: Supernatural (125K+)', value: '/tv/Supernatural/' },
-        { label: 'TV: Glee (108K+)', value: '/tv/Glee/' },
-        { label: 'TV: Doctor Who (75K+)', value: '/tv/Doctor-Who/' },
-        { label: 'TV: Sherlock (60K+)', value: '/tv/Sherlock/' },
-        {
-          label: 'TV: Once Upon a Time (48K+)',
-          value: '/tv/Once-Upon-a-Time/',
-        },
-        {
-          label: 'TV: Vampire Diaries (40K+)',
-          value: '/tv/Vampire-Diaries/',
-        },
-        {
-          label: 'TV: Buffy: The Vampire Slayer',
-          value: '/tv/Buffy-The-Vampire-Slayer/',
-        },
-        { label: 'TV: Teen Wolf (30K+)', value: '/tv/Teen-Wolf/' },
-        { label: 'TV: Criminal Minds (24K+)', value: '/tv/Criminal-Minds/' },
-
-        // --- GAMES ---
-        { label: 'Games: Pokemon (100K+)', value: '/game/Pokemon/' },
-        {
-          label: 'Games: Kingdom Hearts (74K+)',
-          value: '/game/Kingdom-Hearts/',
-        },
-        {
-          label: 'Games: Sonic the Hedgehog (48K+)',
-          value: '/game/Sonic-the-Hedgehog/',
-        },
-        {
-          label: 'Games: Final Fantasy VII (43K+)',
-          value: '/game/Final-Fantasy-VII/',
-        },
-        {
-          label: 'Games: Legend of Zelda (38K+)',
-          value: '/game/Legend-of-Zelda/',
-        },
-        { label: 'Games: Mass Effect (20K+)', value: '/game/Mass-Effect/' },
-        { label: 'Games: Genshin Impact', value: '/game/Genshin-Impact/' },
-
-        // --- CARTOONS ---
-        {
-          label: 'Cartoons: Avatar: The Last Airbender (45K+)',
-          value: '/cartoon/Avatar-Last-Airbender/',
-        },
-        {
-          label: 'Cartoons: Miraculous: Ladybug & Cat Noir (36K+)',
-          value: '/cartoon/Miraculous-Tales-of-Ladybug-Cat-Noir/',
-        },
-        {
-          label: 'Cartoons: Teen Titans (33K+)',
-          value: '/cartoon/Teen-Titans/',
-        },
-        {
-          label: 'Cartoons: Danny Phantom (25K+)',
-          value: '/cartoon/Danny-Phantom/',
-        },
-        {
-          label: 'Cartoons: My Little Pony (25K+)',
-          value: '/cartoon/My-Little-Pony/',
-        },
-        {
-          label: 'Cartoons: Young Justice (18K+)',
-          value: '/cartoon/Young-Justice/',
-        },
-
-        // --- COMICS ---
-        { label: 'Comics: Batman (18K+)', value: '/comic/Batman/' },
-        { label: 'Comics: X-Men (14K+)', value: '/comic/X-Men/' },
-        { label: 'Comics: Spider-Man', value: '/comic/Spider-Man/' },
-        { label: 'Comics: Justice League', value: '/comic/Justice-League/' },
-
-        // --- TOP CROSSOVERS ---
-        {
-          label: '⚡ Crossover: Harry Potter & Percy Jackson',
-          value:
-            '/Harry-Potter-and-Percy-Jackson-and-the-Olympians-Crossovers/224/6447/',
-        },
-        {
-          label: '⚡ Crossover: Bleach & Naruto',
-          value: '/Bleach-and-Naruto-Crossovers/1758/1402/',
-        },
-        {
-          label: '⚡ Crossover: Avengers & Harry Potter',
-          value: '/Avengers-and-Harry-Potter-Crossovers/7941/224/',
-        },
-        {
-          label: '⚡ Crossover: Harry Potter & Star Wars',
-          value: '/Harry-Potter-and-Star-Wars-Crossovers/224/8/',
-        },
-        {
-          label: '⚡ Crossover: Naruto & RWBY',
-          value: '/Naruto-and-RWBY-Crossovers/1402/10833/',
-        },
-        {
-          label: '⚡ Crossover: High School DxD & Naruto',
-          value:
-            '/High-School-DxD-%E3%83%8F%E3%82%A4%E3%82%B9%E3%82%AF%E3%83%BC%E3%83%ABD-D-and-Naruto-Crossovers/7944/1402/',
-        },
-        {
-          label: '⚡ Crossover: Avengers & Percy Jackson',
-          value:
-            '/Avengers-and-Percy-Jackson-and-the-Olympians-Crossovers/7941/6447/',
-        },
-        {
-          label: '⚡ Crossover: Fairy Tail & Naruto',
-          value: '/Fairy-Tail-and-Naruto-Crossovers/5041/1402/',
-        },
-        {
-          label: '⚡ Crossover: Dragon Ball Z & Naruto',
-          value: '/Dragon-Ball-Z-and-Naruto-Crossovers/232/1402/',
-        },
-        {
-          label: '⚡ Crossover: Fate/stay night & Naruto',
-          value: '/Fate-stay-night-and-Naruto-Crossovers/3103/1402/',
-        },
-        {
-          label: '⚡ Crossover: Twilight & Harry Potter',
-          value: '/Harry-Potter-and-Twilight-Crossovers/224/2458/',
-        },
-        {
-          label: '⚡ Crossover: Doctor Who & Sherlock',
-          value: '/Doctor-Who-and-Sherlock-Crossovers/21/5774/',
-        },
-        {
-          label: '⚡ Crossover: Supernatural & Harry Potter',
-          value: '/Harry-Potter-and-Supernatural-Crossovers/224/2522/',
-        },
-        ...FANDOM_OPTIONS,
-      ]),
+      autocomplete: true,
+    },
+    crossovers: {
+      type: MULTI_TEXT,
+      label: 'Crossovers (e.g. Naruto or Naruto & Bleach; overrides Fandom)',
+      value: [] as string[],
+      autocomplete: true,
+      options: [],
     },
     sort: {
       type: FilterTypes.Picker,
@@ -408,15 +200,184 @@ class FanFictionNet extends NekoriBasePlugin {
         { label: 'Complete', value: '2' },
       ],
     },
-  } satisfies Filters;
+  } satisfies AutocompleteFilters;
 
-  private extractCoverUrl(rawUrl?: string): string {
+  async getFilterSuggestions(
+    filterKey: string,
+    query: string,
+  ): Promise<FilterOption[]> {
+    if (filterKey !== 'fandom' && filterKey !== 'crossovers') return [];
+
+    const input = query.trim().toLowerCase();
+    if (input.length < 2) return [];
+    const terms = input.split(/\s+|[&+]/).filter(term => term && term !== 'x');
+    if (!terms.length) return [];
+    const matches = (option: FilterOption) => {
+      const text = option.label.toLowerCase();
+      return terms.every(term => text.includes(term));
+    };
+    const isCrossover = filterKey === 'crossovers';
+    const catalog: FilterOption[] = [];
+    const categories = Object.entries(FANDOM_CATEGORIES);
+    // Bound concurrency and share in-flight requests across successive keystrokes.
+    for (let i = 0; i < categories.length; i += 3) {
+      const pages = await Promise.all(
+        categories
+          .slice(i, i + 3)
+          .map(([route, label]) =>
+            this.getSuggestionPage(
+              `${isCrossover ? '/crossovers' : ''}/${route}/`,
+              isCrossover ? 'crossovers' : 'fandom',
+              label,
+            ),
+          ),
+      );
+      catalog.push(...pages.flat());
+    }
+    if (!isCrossover) return catalog.filter(matches).slice(0, 20);
+
+    // Crossover indexes link to fandom directories; each directory contains
+    // the actual pair/archive URLs, including FanFiction's numeric IDs.
+    const seeds = catalog
+      .map(option => ({
+        option,
+        score: terms.filter(term => option.label.toLowerCase().includes(term))
+          .length,
+      }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    const pages = await Promise.all(
+      seeds.map(({ option }) =>
+        this.getSuggestionPage(option.value, 'pairs', option.label),
+      ),
+    );
+    const seen = new Set<string>();
+    return pages
+      .flat()
+      .filter(option => {
+        if (!matches(option) || seen.has(option.value)) return false;
+        seen.add(option.value);
+        return true;
+      })
+      .slice(0, 20);
+  }
+
+  private async getSuggestionPage(
+    path: string,
+    kind: 'fandom' | 'crossovers' | 'pairs',
+    prefix: string,
+  ): Promise<FilterOption[]> {
+    const cached = this.suggestionPages.get(path);
+    if (cached && cached.expires > Date.now()) return cached.options;
+
+    const entry = {
+      expires: Date.now() + 30 * 60 * 1000,
+      options: this.fetchSuggestionPage(path, kind, prefix),
+    };
+    this.suggestionPages.set(path, entry);
+    if (this.suggestionPages.size > 32) {
+      const oldest = this.suggestionPages.keys().next().value;
+      if (oldest !== undefined) this.suggestionPages.delete(oldest);
+    }
+    try {
+      return await entry.options;
+    } catch (error) {
+      // A failed request or challenge page must be retried on the next query.
+      if (this.suggestionPages.get(path) === entry)
+        this.suggestionPages.delete(path);
+      throw error;
+    }
+  }
+
+  private async fetchSuggestionPage(
+    path: string,
+    kind: 'fandom' | 'crossovers' | 'pairs',
+    prefix: string,
+  ): Promise<FilterOption[]> {
+    const res = await fetchApi(`${this.site}${path}`, {
+      headers: this.headers,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch fandom suggestions: HTTP ${res.status}`);
+    }
+    const $ = loadCheerio(await res.text());
+    const options: FilterOption[] = [];
+    const seen = new Set<string>();
+    $('a[href]').each((_, element) => {
+      const anchor = $(element);
+      const name = anchor.text().trim();
+      const href = anchor.attr('href');
+      if (!name || !href) return;
+      let url: URL;
+      try {
+        url = new URL(href, `${this.site}${path}`);
+      } catch {
+        return;
+      }
+      if (url.origin !== this.site) return;
+      const value = `${url.pathname.replace(/\/$/, '')}/`;
+      const isFandom =
+        kind === 'fandom' &&
+        value.startsWith(path) &&
+        value.slice(path.length).match(/^[^/]+\/$/);
+      const isDirectory =
+        kind === 'crossovers' && /^\/crossovers\/[^/]+\/\d+\/$/.test(value);
+      const isPair =
+        kind === 'pairs' && /^\/[^/]+[-_]Crossovers\/\d+\/\d+\/$/i.test(value);
+      if ((!isFandom && !isDirectory && !isPair) || seen.has(value)) return;
+      seen.add(value);
+      options.push({
+        label:
+          kind === 'pairs'
+            ? /\/0\/$/.test(value)
+              ? `${prefix}: All crossovers`
+              : `${prefix} & ${name}`
+            : `${prefix}: ${name}`,
+        value,
+      });
+    });
+    if (!options.length) {
+      throw new Error(
+        'Fandom suggestions not found. The site may be blocked or its layout may have changed.',
+      );
+    }
+    return options;
+  }
+
+  private async resolveFandomPath(
+    value: string,
+    filterKey: string,
+  ): Promise<string> {
+    const input = value.trim();
+    let path = input;
+    if (!input.includes('/')) {
+      const suggestions = await this.getFilterSuggestions(filterKey, input);
+      const key = input.toLowerCase();
+      const match =
+        suggestions.find(
+          option =>
+            option.label.toLowerCase() === key ||
+            option.label.replace(/^[^:]+:\s*/, '').toLowerCase() === key,
+        ) || (suggestions.length === 1 ? suggestions[0] : undefined);
+      if (!match)
+        throw new Error(
+          'Select a fandom/crossover suggestion or enter its FanFiction path.',
+        );
+      path = match.value;
+    }
+    if (!path.startsWith('/')) path = `/${path}`;
+    if (!path.endsWith('/')) path = `${path}/`;
+    return path;
+  }
+
+  private extractCoverUrl(rawUrl?: string): string | undefined {
     if (
       !rawUrl ||
       rawUrl.includes('d_60_90.jpg') ||
       rawUrl.includes('d_75_100.jpg')
     ) {
-      return defaultCover;
+      return undefined;
     }
     // Upgrade thumbnail sizes (e.g. /75/, /60/, /90/) to high-resolution /180/
     let upgraded = rawUrl
@@ -464,16 +425,27 @@ class FanFictionNet extends NekoriBasePlugin {
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
     const filters = options?.filters;
-    let fandomPath =
-      filters?.customFandom?.value?.trim() ||
-      filters?.fandom?.value ||
-      '/book/Harry-Potter/';
-    if (!fandomPath.startsWith('/')) {
-      fandomPath = `/${fandomPath}`;
-    }
-    if (!fandomPath.endsWith('/')) {
-      fandomPath = `${fandomPath}/`;
-    }
+    const customPath = filters?.customFandom?.value?.trim();
+    const crossovers = filters?.crossovers?.value?.filter(value =>
+      value.trim(),
+    );
+    const paths = customPath
+      ? [customPath]
+      : crossovers?.length
+        ? crossovers
+        : [filters?.fandom?.value || '/book/Harry-Potter/'];
+    const fandomPaths = [
+      ...new Set(
+        await Promise.all(
+          paths.map(path =>
+            this.resolveFandomPath(
+              path,
+              !customPath && crossovers?.length ? 'crossovers' : 'fandom',
+            ),
+          ),
+        ),
+      ),
+    ];
 
     const params = new URLSearchParams();
 
@@ -507,16 +479,22 @@ class FanFictionNet extends NekoriBasePlugin {
     }
 
     const query = params.toString();
-    const url = `${this.site}${fandomPath}${query ? `?${query}` : ''}`;
-
-    const res = await fetchApi(url, { headers: this.headers });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch popular novels: HTTP ${res.status}`);
+    const novels: Plugin.NovelItem[] = [];
+    const seen = new Set<string>();
+    for (const fandomPath of fandomPaths) {
+      const url = `${this.site}${fandomPath}${query ? `?${query}` : ''}`;
+      const res = await fetchApi(url, { headers: this.headers });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch popular novels: HTTP ${res.status}`);
+      }
+      const $ = loadCheerio(await res.text());
+      for (const novel of this.parseNovels($)) {
+        if (seen.has(novel.path)) continue;
+        seen.add(novel.path);
+        novels.push(novel);
+      }
     }
-
-    const body = await res.text();
-    const $ = loadCheerio(body);
-    return this.parseNovels($);
+    return novels;
   }
 
   async searchNovels(

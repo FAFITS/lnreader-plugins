@@ -20,6 +20,15 @@ author notes, navigation, or comments. Requests use `view_adult=true`; works
 restricted to registered users still require an authenticated WebView session.
 HTTP errors and challenge pages are reported as errors rather than empty results.
 
+Library compatibility: keep the plugin ID `archiveofourown`, the source name
+`Archive Of Our Own`, and the English repository group. Catalog results use
+LNReader's original `works/ID` paths without a leading slash. When refreshing
+those library entries, chapter paths and full titles come from `/navigate`, as
+in LNReader's AO3 plugin, including for one-shots. Entries added by earlier 2.x
+versions with leading-slash paths retain their existing path and title scheme.
+This preserves download lookup identities; the plugin cannot rename or recover
+files on the device. Back up the library and download folder before recovery.
+
 The implementation follows the public [AO3 source](https://github.com/otwcode/otwarchive):
 
 - `app/controllers/autocomplete_controller.rb`

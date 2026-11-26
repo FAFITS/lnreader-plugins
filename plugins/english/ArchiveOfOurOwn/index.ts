@@ -20,7 +20,7 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
   name = 'Archive Of Our Own';
   icon = 'icon.png';
   site = 'https://archiveofourown.org';
-  version = '2.0.3';
+  version = '2.0.4';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.MIXED;
   filters = filters;
@@ -172,7 +172,8 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
       const href = title.attr('href');
       const name = title.text().trim();
       if (!href || !name || !/^\/works\/\d+(?:[/?#]|$)/.test(href)) return;
-      const path = this.workPath(href);
+      // Keep LNReader's persisted identity: no leading slash in stored paths.
+      const path = this.workPath(href).slice(1);
       if (seen.has(path)) return;
       seen.add(path);
       // AO3 blurbs have rating/category icons, not book covers.
@@ -245,6 +246,10 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
 
   async parseNovel(novelPath: string): Promise<Plugin.SourceNovel> {
     const path = this.workPath(novelPath);
+    // Existing 2.x entries have leading-slash paths. Retain their chapter
+    // identities too, while older LNReader entries use the full chapter index.
+    const legacyPaths = !/^(?:\/|https?:\/\/)/i.test(novelPath.trim());
+    const storedPath = legacyPaths ? path.slice(1) : path;
     const $ = await this.document(`${path}?view_adult=true`);
     const preface = $('#workskin > .preface').first();
     const name = preface.find('h2.title').text().trim();
@@ -274,18 +279,22 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
       .match(/(\d+)\s*\/\s*(\d+|\?)/);
     const completed = !!counts && counts[2] !== '?' && counts[1] === counts[2];
     const chapters: Plugin.ChapterItem[] = [];
-    $('#selected_id option').each((index, element) => {
-      const option = $(element);
-      const id = option.attr('value');
-      if (!id || !/^\d+$/.test(id)) return;
-      chapters.push({
-        name: option.text().trim() || `Chapter ${index + 1}`,
-        path: `${path}/chapters/${id}`,
-        chapterNumber: index + 1,
+    if (!legacyPaths) {
+      $('#selected_id option').each((index, element) => {
+        const option = $(element);
+        const id = option.attr('value');
+        if (!id || !/^\d+$/.test(id)) return;
+        chapters.push({
+          name: option.text().trim() || `Chapter ${index + 1}`,
+          path: `${path}/chapters/${id}`,
+          chapterNumber: index + 1,
+        });
       });
-    });
-    if (!chapters.length && Number(counts?.[1]) > 1) {
+    }
+    if (legacyPaths || (!chapters.length && Number(counts?.[1]) > 1)) {
       // The full chapter index is small and does not download the entire work.
+      // LNReader used these full names and chapter URLs even for one-shots;
+      // the abbreviated dropdown titles produce different download filenames.
       const index = await this.document(`${path}/navigate?view_adult=true`);
       index('ol.chapter.index li').each((_, element) => {
         const link = index(element).find('a').first();
@@ -293,7 +302,9 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
         if (!href || !href.startsWith(`${path}/chapters/`)) return;
         chapters.push({
           name: link.text().trim() || `Chapter ${chapters.length + 1}`,
-          path: this.normalizePath(href),
+          path: legacyPaths
+            ? this.normalizePath(href).slice(1)
+            : this.normalizePath(href),
           chapterNumber: chapters.length + 1,
           releaseTime: index(element)
             .find('.datetime')
@@ -301,7 +312,8 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
             .match(/\d{4}-\d{2}-\d{2}/)?.[0],
         });
       });
-      if (!chapters.length) throw createPluginError(PluginError.EmptyContent);
+      if (Number(counts?.[1]) > chapters.length && Number(counts?.[1]) > 1)
+        throw createPluginError(PluginError.EmptyContent);
     }
     if (!chapters.length) {
       if (
@@ -309,7 +321,7 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
           .length
       )
         throw createPluginError(PluginError.EmptyContent);
-      chapters.push({ name, path, chapterNumber: 1 });
+      chapters.push({ name, path: storedPath, chapterNumber: 1 });
     }
     const published = $('dd.published').first().text().trim();
     const updated = $('dd.status').first().text().trim();
@@ -319,7 +331,7 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
       chapters[chapters.length - 1].releaseTime = updated;
     return {
       name,
-      path,
+      path: storedPath,
       author: authors.length
         ? authors.join(', ')
         : byline.text().trim() || 'Anonymous',

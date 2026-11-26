@@ -17,7 +17,7 @@ import { filters, TAG_FILTERS } from './filters';
 
 class ArchiveOfOurOwn extends NekoriBasePlugin {
   id = 'archiveofourown';
-  name = 'Archive Of Our Own (EN)';
+  name = 'Archive Of Our Own';
   icon = 'icon.png';
   site = 'https://archiveofourown.org';
   version = '2.0.2';

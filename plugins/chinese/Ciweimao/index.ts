@@ -146,6 +146,13 @@ const ATTRIBUTE_TAGS = [
   { label: '美漫 (American Comics)', value: '223' },
 ];
 
+const TAG_LABELS = new Map(
+  [...IP_TAGS, ...ATTRIBUTE_TAGS].map(({ value, label }) => [
+    value,
+    label.split(' (')[0],
+  ]),
+);
+
 const SORT_OPTIONS = [
   { label: '默认排序 (Default)', value: '' },
   { label: '更新时间排序 (Recently Updated)', value: 'uptime' },
@@ -163,7 +170,7 @@ class Ciweimao extends NekoriBasePlugin {
   name = 'Ciweimao';
   icon = 'icon.svg';
   site = 'https://www.ciweimao.com';
-  version = '1.0.4';
+  version = '1.0.5';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
   imageRequestInit = {
@@ -302,37 +309,29 @@ class Ciweimao extends NekoriBasePlugin {
     pageNo: number,
     filters?: Plugin.PopularNovelsOptions<typeof this.filters>['filters'],
     searchTerm = '',
+    showLatestNovels = false,
   ): Promise<Plugin.NovelItem[]> {
-    const tagIds = [
+    const tagIds = new Set([
       ...(filters?.ipTags?.value || []),
       ...(filters?.attributeTags?.value || []),
-    ];
+    ]);
     const [categoryType = '0', categoryId = '0'] = (
       filters?.category?.value || '0-0'
     ).split('-');
 
     const facets: string[] = [];
-    if (tagIds.length > 0) {
-      const availableTags = [...IP_TAGS, ...ATTRIBUTE_TAGS];
-      for (const tagId of tagIds) {
-        const tag = availableTags.find(option => option.value === tagId);
-        if (!tag) {
-          throw new Error(`Unknown Ciweimao tag ID: ${tagId}`);
-        }
-
-        const englishLabelStart = tag.label.indexOf(' (');
-        const label =
-          englishLabelStart >= 0
-            ? tag.label.slice(0, englishLabelStart)
-            : tag.label;
-        facets.push(label);
+    for (const tagId of tagIds) {
+      const label = TAG_LABELS.get(tagId);
+      if (!label) {
+        throw new Error(`Unknown Ciweimao tag ID: ${tagId}`);
       }
+      facets.push(label);
     }
 
     const filterPath = [
       categoryType,
       categoryId,
-      filters?.sort?.value || '0',
+      filters?.sort?.value || (showLatestNovels ? 'uptime' : '0'),
       filters?.updateTime?.value || '0',
       filters?.wordCount?.value || '0',
       filters?.status?.value || '0',
@@ -356,6 +355,7 @@ class Ciweimao extends NekoriBasePlugin {
       pageNo,
       filters,
       filters?.keyword?.value.trim(),
+      options?.showLatestNovels,
     );
   }
 
@@ -466,24 +466,33 @@ class Ciweimao extends NekoriBasePlugin {
       throw new Error(`Invalid Ciweimao chapter path: ${chapterPath}`);
     }
 
-    let $ = await this.fetchDocument(
-      `https://mip.ciweimao.com/chapter/${chapterId}`,
+    let lastError: unknown;
+    for (const host of ['mip', 'wap']) {
+      try {
+        const $ = await this.fetchDocument(
+          `https://${host}.ciweimao.com/chapter/${chapterId}`,
+        );
+        const content = this.parseChapterContent($);
+        if (content) return content;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error(
+      'Ciweimao chapter content was not found. It may be unavailable or require access on the site.',
     );
-    let $content = $('#J_BookRead');
-    if (!$content.text().trim()) {
-      $ = await this.fetchDocument(
-        `https://wap.ciweimao.com/chapter/${chapterId}`,
-      );
-      $content = $('#J_BookRead');
-    }
+  }
 
-    if ($content.length === 0 || !$content.text().trim()) {
-      throw new Error(
-        'Ciweimao chapter content was not found. It may be unavailable or require access on the site.',
-      );
-    }
+  private parseChapterContent(
+    $: ReturnType<typeof loadCheerio>,
+  ): Plugin.ChapterContent | undefined {
+    const $content = $('#J_BookRead');
+    if (!$content.length) return undefined;
 
-    $content.find('script, style, .num-link, span').each((_, element) => {
+    $content.find('script, style, .num-link').remove();
+    $content.find('span').each((_, element) => {
       const $element = $(element);
       if ($element.find('img').length > 0) {
         $element.replaceWith($element.contents());
@@ -510,25 +519,37 @@ class Ciweimao extends NekoriBasePlugin {
 
       if (imageSource) {
         try {
-          $image.attr('src', new URL(imageSource, this.site).href);
+          const url = new URL(imageSource, this.site);
+          if (!/^https?:$/.test(url.protocol)) {
+            $image.remove();
+            return;
+          }
+          $image.attr('src', url.href);
         } catch {
           throw new Error(`Invalid Ciweimao chapter image URL: ${imageSource}`);
         }
+      } else {
+        $image.remove();
+        return;
       }
       $image.attr('loading', 'lazy');
     });
 
     $content.find('p.chapter').each((_, element) => {
       const $paragraph = $(element);
-      const html = $paragraph.html();
-      if (html) {
-        $paragraph.html(html.replace(/^[\s\u3000]+/, ''));
+      const firstNode = $paragraph.contents()[0];
+      if (firstNode?.type === 'text') {
+        firstNode.data = firstNode.data.replace(/^[\s\u3000]+/, '');
       }
     });
 
+    const hasImages = $content.find('img[src]').length > 0;
+    const hasText = Boolean($content.text().trim());
+    if (!hasText && !hasImages) return undefined;
+
     return {
       state: 'ready',
-      type: 'novel',
+      type: hasImages ? (hasText ? 'mixed' : 'image') : 'novel',
       html: $content.html() || '',
     };
   }

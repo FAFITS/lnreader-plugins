@@ -16,6 +16,7 @@ const SEARCH_API =
 const DEFAULT_PROXY_URL = 'https://gofq.52dns.cc';
 const EXPECTED_READER_FONT = 'dc027189e0ba4cd';
 const LIBRARY_PAGE_SIZE = 18;
+const BOOK_INFO_CONCURRENCY = 4;
 const SEARCH_PAGE_SIZE = 10;
 const READABLE_GENRES = new Set(['0', '6', '7', '8', '204']);
 const PROXY_WATERMARK_RE =
@@ -82,12 +83,11 @@ function escapeAttr(text: string): string {
  * Extracts the balanced JSON literal assigned to `window.__INITIAL_STATE__=`.
  */
 function extractInitialState(html: string): UnknownRecord | undefined {
-  const marker = 'window.__INITIAL_STATE__=';
-  const markerIdx = html.indexOf(marker);
-  if (markerIdx < 0) return undefined;
+  const marker = /window\.__INITIAL_STATE__\s*=\s*/.exec(html);
+  if (!marker) return undefined;
 
-  const start = html.indexOf('{', markerIdx + marker.length);
-  if (start < 0) return undefined;
+  const start = marker.index + marker[0].length;
+  if (html[start] !== '{') return undefined;
 
   let depth = 0;
   let inString = false;
@@ -140,7 +140,7 @@ class FanqiePlugin extends NekoriBasePlugin {
   name = 'Fanqie';
   icon = 'icon.png';
   site = SITE;
-  version = '1.0.1';
+  version = '1.0.2';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -505,6 +505,8 @@ class FanqiePlugin extends NekoriBasePlugin {
     const data = isRecord(payload.data) ? payload.data : undefined;
     const bookList = Array.isArray(data?.book_list) ? data.book_list : [];
     const novels: Plugin.NovelItem[] = [];
+    const seen = new Set<string>();
+    const unresolvedTitles: { novel: Plugin.NovelItem; bookId: string }[] = [];
 
     for (const item of bookList) {
       if (!isRecord(item)) continue;
@@ -514,22 +516,36 @@ class FanqiePlugin extends NekoriBasePlugin {
           : '';
       const rawName =
         typeof item.book_name === 'string' ? item.book_name.trim() : '';
-      if (!/^\d+$/.test(bookId) || !rawName) continue;
+      if (!/^\d+$/.test(bookId) || !rawName || seen.has(bookId)) continue;
+      seen.add(bookId);
 
-      let name = decodeLibraryFont(rawName);
-      if (hasPuaChars(name)) {
-        const info = await this.fetchPlainBookInfo(bookId);
-        if (typeof info?.bookName === 'string' && info.bookName.trim()) {
-          name = info.bookName.trim();
-        }
-      }
-
-      novels.push({
-        name,
+      const novel: Plugin.NovelItem = {
+        name: decodeLibraryFont(rawName),
         path: `/page/${bookId}`,
         cover: this.normalizeCover(item.thumb_url ?? item.thumb_uri),
-      });
+      };
+      novels.push(novel);
+      if (hasPuaChars(novel.name)) {
+        unresolvedTitles.push({ novel, bookId });
+      }
     }
+
+    // Keep API fallback requests bounded while preserving the library order.
+    let nextTitle = 0;
+    await Promise.all(
+      Array.from(
+        { length: Math.min(BOOK_INFO_CONCURRENCY, unresolvedTitles.length) },
+        async () => {
+          while (nextTitle < unresolvedTitles.length) {
+            const { novel, bookId } = unresolvedTitles[nextTitle++];
+            const info = await this.fetchPlainBookInfo(bookId);
+            if (typeof info?.bookName === 'string' && info.bookName.trim()) {
+              novel.name = info.bookName.trim();
+            }
+          }
+        },
+      ),
+    );
 
     return novels;
   }
@@ -673,7 +689,8 @@ class FanqiePlugin extends NekoriBasePlugin {
     const chapters: Plugin.ChapterItem[] = [];
     const seen = new Set<string>();
 
-    validVolumes.forEach((volume, volumeIndex) => {
+    volumes.forEach((volume: unknown, volumeIndex) => {
+      if (!Array.isArray(volume) || !volume.length) return;
       const fallbackVolumeName =
         typeof names[volumeIndex] === 'string' ? names[volumeIndex].trim() : '';
 
@@ -851,9 +868,7 @@ class FanqiePlugin extends NekoriBasePlugin {
 
       if (node.find('p, h1, h2, h3, h4, h5, h6').length > 0) return;
 
-      const clone = node.clone();
-      clone.find('img').remove();
-      for (const line of clone.text().split('\n')) {
+      for (const line of node.text().split('\n')) {
         pushLine(line);
       }
     });

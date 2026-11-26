@@ -59,7 +59,7 @@ class FalooPlugin extends NekoriBasePlugin {
   name = 'Faloo';
   icon = 'icon.png';
   site = 'https://www.faloo.com';
-  version = '1.0.1';
+  version = '1.0.2';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
@@ -211,7 +211,16 @@ class FalooPlugin extends NekoriBasePlugin {
     }
     const contentType = response.headers.get('content-type') || '';
     const bytes = new Uint8Array(await response.arrayBuffer());
-    return /utf-8/i.test(contentType) ? bytesToUtf8(bytes) : decodeGbk(bytes);
+    const charset =
+      contentType.match(/charset\s*=\s*["']?([\w-]+)/i)?.[1] ||
+      bytesToUtf8(bytes.subarray(0, 2048)).match(
+        /<meta\b[^>]*charset\s*=\s*["']?([\w-]+)/i,
+      )?.[1];
+    const hasUtf8Bom =
+      bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    return hasUtf8Bom || /^utf-?8$/i.test(charset || '')
+      ? bytesToUtf8(bytes)
+      : decodeGbk(bytes);
   }
 
   private parseNovelList(html: string): Plugin.NovelItem[] {
@@ -246,9 +255,8 @@ class FalooPlugin extends NekoriBasePlugin {
     pageNo: number,
     searchType = '1',
   ): Promise<Plugin.NovelItem[]> {
-    const safePage = Math.max(1, pageNo);
     const encoded = encodeFalooSearch(term);
-    const url = `${PC_BASE}/l/0/${safePage}.html?t=${encodeURIComponent(searchType)}&k=${encoded}`;
+    const url = `${PC_BASE}/l/0/${pageNo}.html?t=${encodeURIComponent(searchType)}&k=${encoded}`;
     const html = await this.fetchHtml(url);
     return this.parseNovelList(html);
   }
@@ -257,6 +265,8 @@ class FalooPlugin extends NekoriBasePlugin {
     pageNo: number,
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
+    if (!Number.isInteger(pageNo) || pageNo < 1) return [];
+
     const filters = options?.filters;
     const keyword = filters?.keyword?.value?.trim() || '';
     const searchType = filters?.searchType?.value || '1';
@@ -264,7 +274,6 @@ class FalooPlugin extends NekoriBasePlugin {
       return this.fetchSearch(keyword, pageNo, searchType);
     }
 
-    const safePage = Math.max(1, pageNo);
     const category = filters?.category?.value || '0';
     const letter = filters?.letter?.value || '0';
     const length = filters?.length?.value || '0';
@@ -275,7 +284,7 @@ class FalooPlugin extends NekoriBasePlugin {
         ? '0'
         : filters?.sort?.value || '1';
 
-    const url = `${PC_BASE}/y_${category}_0_${letter}_${length}_${status}_${sort}_${safePage}.html`;
+    const url = `${PC_BASE}/y_${category}_0_${letter}_${length}_${status}_${sort}_${pageNo}.html`;
     const html = await this.fetchHtml(url);
     return this.parseNovelList(html);
   }
@@ -285,7 +294,7 @@ class FalooPlugin extends NekoriBasePlugin {
     pageNo: number,
   ): Promise<Plugin.NovelItem[]> {
     const term = searchTerm.trim();
-    if (!term) return [];
+    if (!term || !Number.isInteger(pageNo) || pageNo < 1) return [];
     return this.fetchSearch(term, pageNo, '1');
   }
 
@@ -363,10 +372,9 @@ class FalooPlugin extends NekoriBasePlugin {
   }
 
   private parseFallbackTableChapters(
-    detailHtml: string,
+    $: ReturnType<typeof loadCheerio>,
     novelName: string,
   ): Plugin.ChapterItem[] {
-    const $ = loadCheerio(detailHtml);
     const chapters: Plugin.ChapterItem[] = [];
     const seen = new Set<string>();
 
@@ -466,7 +474,7 @@ class FalooPlugin extends NekoriBasePlugin {
     }
 
     if (!chapters.length) {
-      chapters = this.parseFallbackTableChapters(html, name);
+      chapters = this.parseFallbackTableChapters($, name);
     }
 
     return {
@@ -500,34 +508,67 @@ class FalooPlugin extends NekoriBasePlugin {
       throw new Error('Faloo chapter container (.noveContent) was not found');
     }
 
+    contentEl.find('script, style').remove();
+    const accessText = contentEl.text().trim();
+    const remainingText = accessText.replace(
+      /您还没有登录|请登录后[在再]继续阅读|升级VIP会员/g,
+      '',
+    );
+    // Bare access notices are checkpoints; mentions of VIP inside prose are not.
     const hasCheckpointUi =
       contentEl.find('.c_c1, .c_c3, .c_c4').length > 0 ||
-      /您还没有登录|请登录后在继续阅读|升级VIP会员/.test(contentEl.text());
+      (remainingText !== accessText && /^[\s，,。.!！]*$/.test(remainingText));
 
-    const paragraphs: string[] = [];
-    contentEl.find('p').each((_index, element) => {
-      const text = $(element)
-        .text()
-        .replace(/[\u00a0\u3000]+/g, ' ')
-        .trim();
-      if (text) paragraphs.push(text);
-    });
-
-    const imageUrls: string[] = [];
-    contentEl.find('img').each((_index, element) => {
-      const rawSrc =
-        $(element).attr('data-original') || $(element).attr('src') || '';
-      const src = this.normalizePcUrl(rawSrc);
-      if (src && !/\/novel2\//i.test(src)) {
-        imageUrls.push(src);
+    contentEl.find('.c_c1, .c_c3, .c_c4').remove();
+    const parts: string[] = [];
+    let pendingText = '';
+    let hasText = false;
+    let hasImages = false;
+    const flushText = () => {
+      for (const line of pendingText.split('\n')) {
+        const text = line.replace(/[\u00a0\u3000]+/g, ' ').trim();
+        if (text) {
+          parts.push(`<p>${escapeHtml(text)}</p>`);
+          hasText = true;
+        }
       }
-    });
+      pendingText = '';
+    };
+    const visit = (node: ReturnType<typeof contentEl.contents>[number]) => {
+      if (node.type === 'text') {
+        pendingText += node.data;
+        return;
+      }
+      if (!('tagName' in node)) return;
+      if (node.tagName === 'img') {
+        const src = this.normalizePcUrl(
+          node.attribs['data-original'] || node.attribs.src || '',
+        );
+        if (src && !/\/novel2\//i.test(src)) {
+          flushText();
+          parts.push(`<img src="${escapeAttr(src)}" />`);
+          hasImages = true;
+        }
+        return;
+      }
+      const isBlock =
+        /^(?:p|div|section|article|h[1-6]|li|blockquote|br)$/.test(
+          node.tagName,
+        );
+      if (isBlock) flushText();
+      for (const child of node.children) visit(child);
+      if (isBlock) flushText();
+    };
+    for (const node of contentEl.contents().toArray()) visit(node);
+    flushText();
 
-    if (hasCheckpointUi && !paragraphs.length && !imageUrls.length) {
+    const contentHtml = parts.join('');
+    if (hasCheckpointUi) {
       return {
         state: 'checkpoint',
-        type: 'novel',
+        type: hasImages ? 'mixed' : 'novel',
         html:
+          contentHtml +
           '<p>此章节为VIP付费章节，请在飞卢小说网登录并订阅后阅读。</p>' +
           '<p>This VIP chapter requires logging into Faloo and subscribing to read.</p>',
         checkpointMessage: 'VIP chapter requires Faloo login and subscription',
@@ -536,21 +577,12 @@ class FalooPlugin extends NekoriBasePlugin {
       };
     }
 
-    const textHtml = paragraphs
-      .map(text => `<p>${escapeHtml(text)}</p>`)
-      .join('');
-    const imageHtml = imageUrls
-      .map(src => `<img src="${escapeAttr(src)}" />`)
-      .join('');
-
-    if (textHtml && imageHtml) {
-      return { state: 'ready', type: 'mixed', html: `${textHtml}${imageHtml}` };
-    }
-    if (imageHtml) {
-      return { state: 'ready', type: 'image', html: imageHtml };
-    }
-    if (textHtml) {
-      return { state: 'ready', type: 'novel', html: textHtml };
+    if (contentHtml) {
+      return {
+        state: 'ready',
+        type: hasImages ? (hasText ? 'mixed' : 'image') : 'novel',
+        html: contentHtml,
+      };
     }
 
     throw new Error('Faloo chapter content was empty or unavailable');

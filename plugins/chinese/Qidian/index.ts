@@ -25,16 +25,19 @@ const FEMALE_CATEGORIES = new Set([
 const CSRF_CHARS =
   'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
+type CsrfToken = { token: string; fromJar: boolean };
+
 class QidianPlugin extends NekoriBasePlugin {
   id = 'qidian.com';
   name = 'Qidian';
   icon = 'icon.svg';
   site = 'https://www.qidian.com';
-  version = '1.0.2';
+  version = '1.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.UNSPECIFIED;
 
   private cachedCsrfToken: string | undefined;
+  private csrfResolution: Promise<CsrfToken> | undefined;
 
   filters = {
     keyword: {
@@ -200,14 +203,25 @@ class QidianPlugin extends NekoriBasePlugin {
     }
   }
 
-  private async resolveCsrfToken(): Promise<{
-    token: string;
-    fromJar: boolean;
-  }> {
+  private async resolveCsrfToken(rejectedToken?: string): Promise<CsrfToken> {
+    // Concurrent chapter requests must share cookie initialization/rotation.
+    if (this.csrfResolution) {
+      const csrf = await this.csrfResolution;
+      if (!rejectedToken || csrf.token !== rejectedToken) return csrf;
+    }
+    if (!this.csrfResolution) {
+      this.csrfResolution = this.readCsrfToken(rejectedToken).finally(() => {
+        this.csrfResolution = undefined;
+      });
+    }
+    return this.csrfResolution;
+  }
+
+  private async readCsrfToken(rejectedToken?: string): Promise<CsrfToken> {
     try {
       const cookies = await getCookies(this.site);
       const token = cookies?.['_csrfToken']?.value?.trim();
-      if (token) {
+      if (token && token !== rejectedToken) {
         this.cachedCsrfToken = token;
         return { token, fromJar: true };
       }
@@ -215,22 +229,21 @@ class QidianPlugin extends NekoriBasePlugin {
       // Fallback when host cookie reader is unavailable
     }
 
-    if (!this.cachedCsrfToken) {
+    if (!this.cachedCsrfToken || this.cachedCsrfToken === rejectedToken) {
       this.cachedCsrfToken = this.generateCsrfToken();
-      try {
-        await setCookie(this.site, {
-          name: '_csrfToken',
-          value: this.cachedCsrfToken,
-          domain: '.qidian.com',
-          path: '/',
-        });
-        return { token: this.cachedCsrfToken, fromJar: true };
-      } catch {
-        // Fallback to manual Cookie header
-      }
     }
-
-    return { token: this.cachedCsrfToken, fromJar: false };
+    const token = this.cachedCsrfToken;
+    try {
+      await setCookie(this.site, {
+        name: '_csrfToken',
+        value: token,
+        domain: '.qidian.com',
+        path: '/',
+      });
+      return { token, fromJar: true };
+    } catch {
+      return { token, fromJar: false };
+    }
   }
 
   private async requestWebcommon(
@@ -238,38 +251,23 @@ class QidianPlugin extends NekoriBasePlugin {
     params: URLSearchParams,
     referer = `${this.site}/`,
   ): Promise<Record<string, unknown>> {
-    const csrf = await this.resolveCsrfToken();
-    params.set('_csrfToken', csrf.token);
-    const headers: Record<string, string> = { Referer: referer };
-    if (!csrf.fromJar) {
-      headers.Cookie = `_csrfToken=${csrf.token}`;
-    }
+    const request = (csrf: CsrfToken) => {
+      params.set('_csrfToken', csrf.token);
+      const headers: Record<string, string> = { Referer: referer };
+      if (!csrf.fromJar) {
+        headers.Cookie = `_csrfToken=${csrf.token}`;
+      }
+      return fetchApi(`${this.site}${endpointPath}?${params.toString()}`, {
+        headers,
+      });
+    };
 
-    let response = await fetchApi(
-      `${this.site}${endpointPath}?${params.toString()}`,
-      { headers },
-    );
+    const csrf = await this.resolveCsrfToken();
+    let response = await request(csrf);
     this.updateCsrfFromResponse(response);
 
     if (response.status === 403) {
-      this.cachedCsrfToken = this.generateCsrfToken();
-      await setCookie(this.site, {
-        name: '_csrfToken',
-        value: this.cachedCsrfToken,
-        domain: '.qidian.com',
-        path: '/',
-      }).catch(() => undefined);
-
-      params.set('_csrfToken', this.cachedCsrfToken);
-      response = await fetchApi(
-        `${this.site}${endpointPath}?${params.toString()}`,
-        {
-          headers: {
-            Referer: referer,
-            Cookie: `_csrfToken=${this.cachedCsrfToken}`,
-          },
-        },
-      );
+      response = await request(await this.resolveCsrfToken(csrf.token));
       this.updateCsrfFromResponse(response);
     }
 
@@ -299,6 +297,7 @@ class QidianPlugin extends NekoriBasePlugin {
 
   private parseRecordsToNovels(records: unknown[]): Plugin.NovelItem[] {
     const novels: Plugin.NovelItem[] = [];
+    const seen = new Set<string>();
     for (const record of records) {
       if (!this.isRecord(record)) continue;
       const idValue = record.bid ?? record.bookId;
@@ -307,7 +306,8 @@ class QidianPlugin extends NekoriBasePlugin {
           ? String(idValue)
           : '';
       const name = typeof record.bName === 'string' ? record.bName.trim() : '';
-      if (!/^\d+$/.test(id) || !name) continue;
+      if (!/^\d+$/.test(id) || !name || seen.has(id)) continue;
+      seen.add(id);
 
       const image =
         typeof record.imgUrl === 'string' ? record.imgUrl : undefined;
@@ -324,11 +324,13 @@ class QidianPlugin extends NekoriBasePlugin {
     term: string,
     pageNo: number,
     filters?: Plugin.PopularNovelsOptions<typeof this.filters>['filters'],
+    showLatestNovels = false,
   ): Promise<Plugin.NovelItem[]> {
     const params = new URLSearchParams({
       kw: term,
       pageNum: String(pageNo),
     });
+    if (showLatestNovels) params.set('orderBy', '4');
 
     if (filters) {
       const selectedCategory = filters.category?.value || '';
@@ -375,10 +377,17 @@ class QidianPlugin extends NekoriBasePlugin {
     pageNo: number,
     options: Plugin.PopularNovelsOptions<typeof this.filters>,
   ): Promise<Plugin.NovelItem[]> {
+    if (!Number.isInteger(pageNo) || pageNo < 1) return [];
+
     const filters = options?.filters;
     const keyword = filters?.keyword?.value?.trim() || '';
     if (keyword) {
-      return this.fetchSearchResults(keyword, pageNo, filters);
+      return this.fetchSearchResults(
+        keyword,
+        pageNo,
+        filters,
+        options?.showLatestNovels,
+      );
     }
 
     const selectedCategory = filters?.category?.value || '';
@@ -395,7 +404,8 @@ class QidianPlugin extends NekoriBasePlugin {
       gender,
       pageNum: String(pageNo),
     });
-    if (filters?.sort?.value) params.set('orderBy', filters.sort.value);
+    const sort = filters?.sort?.value || (options?.showLatestNovels ? '4' : '');
+    if (sort) params.set('orderBy', sort);
     if (filters?.access?.value) params.set('isvip', filters.access.value);
     if (filters?.length?.value) params.set('size', filters.length.value);
     if (filters?.status?.value) params.set('isfinish', filters.status.value);
@@ -424,7 +434,7 @@ class QidianPlugin extends NekoriBasePlugin {
     pageNo: number,
   ): Promise<Plugin.NovelItem[]> {
     const term = searchTerm.trim();
-    if (!term) return [];
+    if (!term || !Number.isInteger(pageNo) || pageNo < 1) return [];
     return this.fetchSearchResults(term, pageNo);
   }
 
@@ -573,14 +583,15 @@ class QidianPlugin extends NekoriBasePlugin {
         ? chapterInfo.content.trim()
         : '';
 
-    const $ = loadCheerio(`<div>${rawContent}</div>`);
+    const $ = loadCheerio(
+      `<div>${rawContent.replace(/<br\s*\/?>/gi, '\n')}</div>`,
+    );
     const paragraphs: string[] = [];
     $('p').each((_index, element) => {
-      const text = $(element)
-        .text()
-        .replace(/[\u00a0\u3000]+/g, ' ')
-        .trim();
-      if (text) paragraphs.push(text);
+      for (const line of $(element).text().split('\n')) {
+        const text = line.replace(/[\u00a0\u3000]+/g, ' ').trim();
+        if (text) paragraphs.push(text);
+      }
     });
 
     if (!paragraphs.length && rawContent) {
@@ -604,7 +615,7 @@ class QidianPlugin extends NekoriBasePlugin {
   }
 
   resolveUrl(path: string, isNovel = true): string {
-    const value = path.startsWith('/') ? path : `/${path}`;
+    const value = path.trim();
     if (isNovel) {
       const bookId = this.parseNovelId(value);
       if (bookId) return `${this.site}/book/${bookId}/`;
@@ -613,7 +624,7 @@ class QidianPlugin extends NekoriBasePlugin {
     if (chapter) {
       return `${this.site}/chapter/${chapter[1]}/${chapter[2]}/`;
     }
-    return `${this.site}${value}`;
+    return this.absoluteUrl(value);
   }
 }
 

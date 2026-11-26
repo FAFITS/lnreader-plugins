@@ -17,10 +17,10 @@ import { filters, TAG_FILTERS } from './filters';
 
 class ArchiveOfOurOwn extends NekoriBasePlugin {
   id = 'archiveofourown';
-  name = 'Archive of Our Own (AO3)';
+  name = 'Archive Of Our Own (EN)';
   icon = 'icon.png';
   site = 'https://archiveofourown.org';
-  version = '2.0.1';
+  version = '2.0.2';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.MIXED;
   filters = filters;

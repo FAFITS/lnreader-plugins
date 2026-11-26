@@ -20,7 +20,7 @@ class ArchiveOfOurOwn extends NekoriBasePlugin {
   name = 'Archive Of Our Own';
   icon = 'icon.png';
   site = 'https://archiveofourown.org';
-  version = '2.0.2';
+  version = '2.0.3';
   contentType = ContentType.NOVEL;
   contentWarning = ContentWarning.MIXED;
   filters = filters;
